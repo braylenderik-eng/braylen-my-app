@@ -5,30 +5,35 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { FINAL_WEEK, FIRST_WEEK, SCOUTING, TEAMS, USER_TEAM, type TeamId } from "@/lib/game/data";
 import type { DefensePlan, Drive, GameResult, OffensePlan, StatLine } from "@/lib/game/sim";
-import { findPortalPlayer, playoffField, standingOf, userFixture, type GameState, type WeekRecap } from "@/lib/game/state";
+import {
+  champion, currentUserFixture, findPortalPlayer, isPlayoffs, PLAYOFF_ROUNDS, PLAYOFF_START, playoffField, playoffFixtures,
+  roundOf, scheduleFixture, seasonOver, seedOf, userEliminated, weekLabel, type GameState, type Score, type WeekRecap,
+} from "@/lib/game/state";
 import { pct } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { MatchupHero, useMatchup, type MatchupInfo } from "../Matchup";
 import { Button, cx, PageHeader, Panel, Stat, Tag, TeamBadge } from "../ui";
 import { UnitCard, unitEdges } from "../UnitMatchups";
 
+const TITLE_WEEK = PLAYOFF_START + PLAYOFF_ROUNDS.length - 1;
+
 export function SimScreen() {
   const { state } = useGame();
   const [viewWeek, setViewWeek] = useState<number | null>(null);
-  const over = state.week > FINAL_WEEK;
   const latest = state.recaps[state.recaps.length - 1];
   const viewing = viewWeek !== null ? state.recaps.find((r) => r.week === viewWeek) : state.unseenRecap ? latest : undefined;
+  const hasGame = !!currentUserFixture(state);
+
+  let body;
+  if (viewing) body = <Recap recap={viewing} fresh={state.unseenRecap && viewing === latest} onBack={() => setViewWeek(null)} />;
+  else if (seasonOver(state)) body = <SeasonComplete state={state} />;
+  else if (isPlayoffs(state) && !hasGame) body = <PlayoffWatch state={state} />;
+  else body = <GamePlan state={state} />;
 
   return (
     <>
-      <WeekStrip state={state} selected={viewing?.week ?? (over ? null : state.week)} onSelect={setViewWeek} />
-      {viewing ? (
-        <Recap recap={viewing} fresh={state.unseenRecap && viewing === latest} onBack={() => setViewWeek(null)} />
-      ) : over ? (
-        <SelectionDay state={state} />
-      ) : (
-        <GamePlan state={state} />
-      )}
+      <WeekStrip state={state} selected={viewing?.week ?? (seasonOver(state) ? null : state.week)} onSelect={setViewWeek} />
+      {body}
     </>
   );
 }
@@ -36,48 +41,64 @@ export function SimScreen() {
 // ---- Week strip -----------------------------------------------------------------
 
 function WeekStrip({ state, selected, onSelect }: { state: GameState; selected: number | null; onSelect: (w: number | null) => void }) {
-  const weeks = [];
-  for (let w = FIRST_WEEK; w <= FINAL_WEEK; w++) weeks.push(w);
-  return (
-    <div className="scrollbar-none mb-5 flex gap-2 overflow-x-auto">
-      {weeks.map((w) => {
-        const f = userFixture(w)!;
-        const opp = f.home === USER_TEAM ? f.away : f.home;
-        const recap = state.recaps.find((r) => r.week === w);
-        const result = recap ? outcome(recap.game) : null;
-        const isCurrent = w === state.week;
-        return (
-          <button
-            key={w}
-            onClick={() => onSelect(recap ? w : null)}
-            disabled={!recap && !isCurrent}
-            className={cx(
-              "flex shrink-0 items-center gap-2 rounded-md border px-3 py-1.5 transition-colors",
-              selected === w ? "border-accent bg-accent/10" : "border-line bg-panel hover:border-line-2",
-              !recap && !isCurrent && "opacity-60",
-            )}
-          >
-            <span className="font-display text-xs tracking-widest text-muted">W{w}</span>
-            <span className="font-display text-xs text-dim">{f.home === USER_TEAM ? "vs" : "@"}</span>
-            <TeamBadge id={opp} size="sm" />
-            {result && (
-              <span className={cx("font-display tabular text-xs font-semibold", result.won ? "text-good" : "text-bad")}>
-                {result.won ? "W" : "L"} {result.us}–{result.them}
-              </span>
-            )}
-          </button>
-        );
-      })}
-      <span
+  const chips = [];
+  for (let w = FIRST_WEEK; w <= TITLE_WEEK; w++) {
+    const recap = state.recaps.find((r) => r.week === w);
+    const isCurrent = w === state.week;
+    let opp: TeamId | null = null;
+    let away = false;
+    if (w <= FINAL_WEEK) {
+      const f = scheduleFixture(w)!;
+      opp = f.home === USER_TEAM ? f.away : f.home;
+      away = f.home !== USER_TEAM;
+    } else if (recap?.game) {
+      opp = recap.game.home === USER_TEAM ? recap.game.away : recap.game.home;
+    } else if (isCurrent) {
+      const f = currentUserFixture(state);
+      if (f) opp = f.home === USER_TEAM ? f.away : f.home;
+    }
+    const result = recap?.game ? outcome(recap.game) : null;
+    const label = w <= FINAL_WEEK ? `W${w}` : ["R1", "QF", "SF", "Final"][roundOf(w)];
+    chips.push(
+      <button
+        key={w}
+        onClick={() => onSelect(recap ? w : null)}
+        disabled={!recap && !isCurrent}
         className={cx(
-          "font-display flex shrink-0 items-center rounded-md border px-3 py-1.5 text-xs tracking-widest",
-          state.week > FINAL_WEEK ? "border-accent bg-accent/10 text-text" : "border-line text-dim",
+          "flex shrink-0 items-center gap-2 rounded-md border px-3 py-1.5 transition-colors",
+          selected === w ? "border-accent bg-accent/10" : "border-line bg-panel hover:border-line-2",
+          !recap && !isCurrent && "opacity-50",
         )}
       >
-        Selection day
-      </span>
-    </div>
-  );
+        <span className="font-display text-xs tracking-widest text-muted">{label}</span>
+        {opp ? (
+          <>
+            <span className="font-display text-xs text-dim">{away ? "@" : "vs"}</span>
+            <TeamBadge id={opp} size="sm" />
+          </>
+        ) : (
+          w > FINAL_WEEK && (
+            <span className="font-display text-xs text-dim">
+              {recap ? (roundOf(w) === 0 && (seedOf(state, USER_TEAM) ?? 99) <= 4 ? "Bye" : "—") : "TBD"}
+            </span>
+          )
+        )}
+        {result && (
+          <span className={cx("font-display tabular text-xs font-semibold", result.won ? "text-good" : "text-bad")}>
+            {result.won ? "W" : "L"} {result.us}–{result.them}
+          </span>
+        )}
+      </button>,
+    );
+    if (w === FINAL_WEEK) {
+      chips.push(
+        <span key="sel" className="font-display flex shrink-0 items-center px-1 text-[10px] tracking-widest text-dim">
+          Playoffs ›
+        </span>,
+      );
+    }
+  }
+  return <div className="scrollbar-none mb-5 flex gap-2 overflow-x-auto">{chips}</div>;
 }
 
 function outcome(g: GameResult) {
@@ -89,25 +110,43 @@ function outcome(g: GameResult) {
 
 // ---- Game plan ------------------------------------------------------------------
 
-const OFFENSE: { id: OffensePlan; name: string; blurb: string; tag: string }[] = [
-  { id: "ground", name: "Ground and pound", blurb: "Run first, shorten the game, protect the ball.", tag: "Fewer turnovers" },
-  { id: "balanced", name: "Balanced", blurb: "Take what the defense gives you.", tag: "Steady" },
-  { id: "air", name: "Air it out", blurb: "Spread them out and push the ball downfield.", tag: "Boom or bust" },
+const OFFENSE: { id: OffensePlan; name: string; tag: string }[] = [
+  { id: "ground", name: "Ground and pound", tag: "Fewer turnovers" },
+  { id: "balanced", name: "Balanced", tag: "Steady" },
+  { id: "air", name: "Air it out", tag: "Boom or bust" },
 ];
 
-const DEFENSE: { id: DefensePlan; name: string; blurb: string; tag: string }[] = [
-  { id: "pressure", name: "Bring pressure", blurb: "Blitz early and often. Force mistakes.", tag: "More takeaways" },
-  { id: "base", name: "Base", blurb: "Play your scheme and tackle well.", tag: "Steady" },
-  { id: "bend", name: "Bend, don't break", blurb: "Two deep safeties. Make them settle for field goals.", tag: "No big plays" },
+const DEFENSE: { id: DefensePlan; name: string; tag: string }[] = [
+  { id: "pressure", name: "Bring pressure", tag: "More takeaways" },
+  { id: "base", name: "Base", tag: "Steady" },
+  { id: "bend", name: "Bend, don't break", tag: "No big plays" },
 ];
+
+/** Hand-written scouting where we have it; a generated report from team ratings otherwise. */
+function scoutingFor(id: TeamId) {
+  const known = SCOUTING[id];
+  if (known) return known;
+  const t = TEAMS[id];
+  const offFirst = t.off >= t.def;
+  return {
+    scheme: offFirst ? "Spread · up-tempo" : "Multiple · defense first",
+    notes: offFirst
+      ? ["They want a shootout and play fast to get one.", "Their defense gives up chunk plays on the perimeter.", "They go for it on fourth down more than anyone you've played."]
+      : ["They win with defense and field position.", "Their front seven is the best unit on the field.", "Their offense stalls against pressure — they rarely throw past 15 yards."],
+    threat: offFirst ? "Their passing game. Keep everything in front of you." : "Their pass rush. Get the ball out fast.",
+    keys: offFirst
+      ? ["Control the clock and keep their offense on the sideline.", "Tackle well in space.", "Score touchdowns, not field goals."]
+      : ["Protect the quarterback.", "Win the field-position battle.", "One explosive play may decide it."],
+  };
+}
 
 function GamePlan({ state }: { state: GameState }) {
   const { dispatch } = useGame();
   const m = useMatchup(state);
   const [simming, setSimming] = useState(false);
   if (!m) return null;
-  const scout = SCOUTING[m.them];
-  const edges = unitEdges(m.us, m.them);
+  const scout = scoutingFor(m.them);
+  const edges = unitEdges(state, m.us, m.them);
   const attack = edges.filter((e) => e.side === "attack");
   const stop = edges.filter((e) => e.side === "stop");
 
@@ -122,13 +161,17 @@ function GamePlan({ state }: { state: GameState }) {
 
   return (
     <div className="pb-28">
-      <PageHeader title="Game plan" sub={`Season 1 · Week ${state.week} · ${m.fixture.home === USER_TEAM ? "Home" : "Road"} game`} />
+      <PageHeader
+        title="Game plan"
+        sub={`Season 1 · ${weekLabel(state.week)} · ${m.neutral ? "Neutral site" : m.fixture.home === USER_TEAM ? "Home game" : "Road game"}`}
+      />
+      <SelectionBanner state={state} />
       <MatchupHero state={state} m={m} />
 
       <div className="mt-5 grid gap-5 lg:grid-cols-3">
         <Panel kicker="The plan" title="Keys to the game">
           <ol className="space-y-2.5">
-            {scout?.keys.map((k, i) => (
+            {scout.keys.map((k, i) => (
               <li key={k} className="flex gap-3 rounded-md border border-line bg-bg-2/70 p-3">
                 <span className="font-display flex size-6 shrink-0 items-center justify-center rounded bg-accent text-sm font-bold">{i + 1}</span>
                 <p className="text-sm leading-6">{k}</p>
@@ -137,9 +180,9 @@ function GamePlan({ state }: { state: GameState }) {
           </ol>
         </Panel>
 
-        <Panel kicker="Their sideline" title={`How ${TEAMS[m.them].name.split(" ").slice(-1)[0]} coach it`} right={<Tag tone="muted">{scout?.scheme}</Tag>}>
+        <Panel kicker="Their sideline" title={`How ${TEAMS[m.them].name.split(" ").slice(-1)[0]} coach it`} right={<Tag tone="muted">{scout.scheme}</Tag>}>
           <ul className="space-y-2">
-            {scout?.notes.map((n) => (
+            {scout.notes.map((n) => (
               <li key={n} className="flex gap-2.5 rounded-md border border-line bg-bg-2/70 px-3 py-2 text-sm leading-6">
                 <span className="mt-2 size-1.5 shrink-0 rounded-full bg-accent-hi" />
                 {n}
@@ -148,34 +191,7 @@ function GamePlan({ state }: { state: GameState }) {
           </ul>
         </Panel>
 
-        <Panel kicker="Injury report" title="Availability">
-          <div className="space-y-4">
-            <div>
-              <p className="font-display text-xs tracking-widest text-muted">{TEAMS[m.them].name}</p>
-              <p className="mt-1 text-sm">Full strength.</p>
-            </div>
-            <div>
-              <p className="font-display text-xs tracking-widest text-muted">{TEAMS[m.us].name}</p>
-              <p className="mt-1 text-sm">
-                <span className="font-semibold">RT Andre Marquez</span> (ankle) — limited this week. Game-time call.
-              </p>
-              <div className="mt-3 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Andre Marquez status">
-                <Choice
-                  active={state.plan.injury === "start"}
-                  onClick={() => dispatch({ type: "plan/set", plan: { injury: "start" } })}
-                  title="Start him"
-                  blurb="Full-strength line. ~30% chance he re-injures it mid-game."
-                />
-                <Choice
-                  active={state.plan.injury === "rest"}
-                  onClick={() => dispatch({ type: "plan/set", plan: { injury: "rest" } })}
-                  title="Rest him"
-                  blurb="Backup Luke Ivers starts. Slightly weaker edge all game."
-                />
-              </div>
-            </div>
-          </div>
-        </Panel>
+        <Availability state={state} them={m.them} />
       </div>
 
       <div className="mt-5 grid gap-5 lg:grid-cols-2">
@@ -192,17 +208,79 @@ function GamePlan({ state }: { state: GameState }) {
               <UnitCard key={e.label} e={e} us={m.us} them={m.them} />
             ))}
           </div>
-          {scout && (
-            <p className="mt-3 rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-sm">
-              <span className="font-display mr-2 text-xs tracking-widest text-accent-hi">Biggest threat</span>
-              {scout.threat}
-            </p>
-          )}
+          <p className="mt-3 rounded-md border border-accent/30 bg-accent/10 px-3 py-2 text-sm">
+            <span className="font-display mr-2 text-xs tracking-widest text-accent-hi">Biggest threat</span>
+            {scout.threat}
+          </p>
         </Panel>
       </div>
 
+      <p className="mt-5 text-sm text-muted">
+        Our ratings come from your starters.{" "}
+        <Link href="/roster" className="text-accent-hi hover:underline">
+          Change the depth chart
+        </Link>{" "}
+        to move them.
+      </p>
+
       <SimBar m={m} simming={simming} onSim={sim} />
     </div>
+  );
+}
+
+function Availability({ state, them }: { state: GameState; them: TeamId }) {
+  const { dispatch } = useGame();
+  const hurt = state.players.filter((p) => state.injuries[p.id]);
+  return (
+    <Panel kicker="Injury report" title="Availability">
+      <div className="space-y-4">
+        <div>
+          <p className="font-display text-xs tracking-widest text-muted">{TEAMS[them].name}</p>
+          <p className="mt-1 text-sm">Full strength.</p>
+        </div>
+        <div>
+          <p className="font-display text-xs tracking-widest text-muted">{TEAMS[USER_TEAM].name}</p>
+          {hurt.length === 0 && <p className="mt-1 text-sm">Full strength.</p>}
+          <ul className="mt-2 space-y-3">
+            {hurt.map((p) => {
+              const inj = state.injuries[p.id];
+              const call = state.gameTime[p.id] ?? "rest";
+              return (
+                <li key={p.id}>
+                  <p className="text-sm">
+                    <span className="font-semibold">
+                      {p.pos} {p.name}
+                    </span>{" "}
+                    ({inj.desc}) —{" "}
+                    {inj.status === "out" ? (
+                      <span className="text-bad">out {inj.weeks > 1 ? `${inj.weeks} games` : "this game"}</span>
+                    ) : (
+                      <span className="text-gold">questionable</span>
+                    )}
+                  </p>
+                  {inj.status === "questionable" && (
+                    <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label={`${p.name} status`}>
+                      <Choice
+                        active={call === "start"}
+                        onClick={() => dispatch({ type: "gametime/set", playerId: p.id, call: "start" })}
+                        title="Start him"
+                        blurb="Plays at full strength. ~30% chance he gets hurt again mid-game."
+                      />
+                      <Choice
+                        active={call === "rest"}
+                        onClick={() => dispatch({ type: "gametime/set", playerId: p.id, call: "rest" })}
+                        title="Rest him"
+                        blurb="Next man up on the depth chart starts."
+                      />
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </div>
+    </Panel>
   );
 }
 
@@ -212,7 +290,7 @@ function PlanPicker<T extends string>({
   onChange,
   label,
 }: {
-  options: { id: T; name: string; blurb: string; tag: string }[];
+  options: { id: T; name: string; tag: string }[];
   value: T;
   onChange: (v: T) => void;
   label: string;
@@ -223,6 +301,7 @@ function PlanPicker<T extends string>({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
+        aria-label={label}
         className="font-display rounded border border-line-2 bg-bg-2 px-2 py-1.5 text-xs tracking-wider text-text"
       >
         {options.map((o) => (
@@ -241,10 +320,7 @@ function Choice({ active, onClick, title, blurb }: { active: boolean; onClick: (
       role="radio"
       aria-checked={active}
       onClick={onClick}
-      className={cx(
-        "rounded-md border p-2.5 text-left transition-colors",
-        active ? "border-accent bg-accent/10" : "border-line bg-bg-2/70 hover:border-line-2",
-      )}
+      className={cx("rounded-md border p-2.5 text-left transition-colors", active ? "border-accent bg-accent/10" : "border-line bg-bg-2/70 hover:border-line-2")}
     >
       <p className="font-display text-sm font-semibold">{title}</p>
       <p className="mt-0.5 text-xs leading-5 text-muted">{blurb}</p>
@@ -259,10 +335,11 @@ function SimBar({ m, simming, onSim }: { m: MatchupInfo; simming: boolean; onSim
         <TeamBadge id={m.us} size="sm" />
         <div className="min-w-0 flex-1">
           <p className="font-display truncate text-sm font-semibold">
-            {m.home ? "vs" : "at"} {TEAMS[m.them].name}
+            {m.home || m.neutral ? "vs" : "at"} {TEAMS[m.them].name}
           </p>
           <p className="font-display tabular text-xs tracking-wider text-muted">
-            Win <span className="text-accent-hi">{pct(m.winProb)}</span> with this plan · Playoff odds {pct(m.odds.win)} with a win, {pct(m.odds.loss)} with a loss
+            Win <span className="text-accent-hi">{pct(m.winProb)}</span> with this plan ·{" "}
+            {m.odds ? `Playoff odds ${pct(m.odds.win)} with a win, ${pct(m.odds.loss)} with a loss` : "Win or go home"}
           </p>
         </div>
         <Button onClick={onSim} disabled={simming} className="px-6 py-3 text-base sm:px-10">
@@ -273,106 +350,280 @@ function SimBar({ m, simming, onSim }: { m: MatchupInfo; simming: boolean; onSim
   );
 }
 
+// ---- Playoffs ---------------------------------------------------------------------
+
+/** Shown at the start of the playoffs, before any game is played. */
+function SelectionBanner({ state }: { state: GameState }) {
+  if (!state.playoff || state.playoff.games.length > 0 || !isPlayoffs(state)) return null;
+  const seed = seedOf(state, USER_TEAM);
+  return (
+    <div
+      className={cx(
+        "mb-5 rounded-lg border p-5",
+        seed ? "border-good/40 bg-gradient-to-br from-good/15 to-panel" : "border-accent/40 bg-gradient-to-br from-accent/15 to-panel",
+      )}
+    >
+      <p className="font-display text-xs tracking-[0.2em] text-muted">Selection day</p>
+      <p className="font-display text-3xl leading-tight font-bold sm:text-4xl">
+        {seed ? `You're in — No. ${seed} seed${seed <= 4 ? " · first-round bye" : ""}` : "Left out of the 12-team field"}
+      </p>
+    </div>
+  );
+}
+
+function PlayoffWatch({ state }: { state: GameState }) {
+  const { dispatch } = useGame();
+  const [simming, setSimming] = useState(false);
+  const round = roundOf(state.week);
+  const seed = seedOf(state, USER_TEAM);
+  const out = userEliminated(state);
+  const sim = () => {
+    setSimming(true);
+    setTimeout(() => {
+      dispatch({ type: "sim/week" });
+      setSimming(false);
+      window.scrollTo({ top: 0 });
+    }, 700);
+  };
+  return (
+    <div>
+      <PageHeader
+        title={PLAYOFF_ROUNDS[round]}
+        sub="Season 1 · 12-team playoff"
+        right={
+          <Button onClick={sim} disabled={simming}>
+            {simming ? "Simulating…" : `Sim ${PLAYOFF_ROUNDS[round].toLowerCase()}`}
+          </Button>
+        }
+      />
+      <SelectionBanner state={state} />
+      <p className="mb-5 rounded-lg border border-line bg-panel px-4 py-3 text-sm">
+        {seed && !out
+          ? `You have a first-round bye as the No. ${seed} seed. Sim the round to see who you face in the quarterfinals.`
+          : seed
+            ? "Your season is over. Sim the remaining rounds to crown a champion."
+            : "The Stallions missed the field. Sim the rounds to watch the playoff play out."}
+      </p>
+      <Bracket state={state} />
+    </div>
+  );
+}
+
+function Bracket({ state }: { state: GameState }) {
+  const games = state.playoff?.games ?? [];
+  const field = playoffField(state);
+  return (
+    <Panel kicker="12-team field" title="The bracket" bodyClassName="p-0">
+      <div className="overflow-x-auto p-4">
+        <div className="grid min-w-[880px] grid-cols-4 gap-4">
+          {PLAYOFF_ROUNDS.map((name, round) => (
+            <div key={name} className="flex flex-col">
+              <p className="font-display mb-2 text-xs tracking-widest text-accent-hi">{name}</p>
+              <div className="flex flex-1 flex-col justify-around gap-3">
+                {playoffFixtures(state, round).map((f, slot) => (
+                  <BracketGame key={slot} state={state} f={f} g={games.find((x) => x.round === round && x.slot === slot)} round={round} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-4 text-xs text-muted">Byes: {field.slice(0, 4).map((t) => `(${t.seed}) ${TEAMS[t.id].name}`).join(" · ")}</p>
+      </div>
+    </Panel>
+  );
+}
+
+function BracketGame({ state, f, g, round }: { state: GameState; f: ReturnType<typeof playoffFixtures>[number]; g?: Score; round: number }) {
+  if (!f) {
+    return <div className="font-display rounded-md border border-dashed border-line px-3 py-4 text-center text-xs tracking-widest text-dim">TBD</div>;
+  }
+  const rows: [TeamId, number | undefined][] = [
+    [f.home, g?.homeScore],
+    [f.away, g?.awayScore],
+  ];
+  const winner = g ? (g.homeScore > g.awayScore ? g.home : g.away) : null;
+  const current = !g && roundOf(state.week) === round;
+  return (
+    <div className={cx("rounded-md border bg-bg-2/70", current ? "border-accent/60" : "border-line")}>
+      {rows.map(([id, pts]) => (
+        <div key={id} className={cx("flex items-center gap-2 px-2.5 py-1.5", winner && winner !== id && "opacity-45")}>
+          <span className="font-display tabular w-4 text-xs text-dim">{seedOf(state, id)}</span>
+          <TeamBadge id={id} size="sm" />
+          <span className={cx("flex-1 truncate text-sm", id === USER_TEAM && "font-bold text-accent-hi", winner === id && "font-semibold")}>{TEAMS[id].name}</span>
+          {pts !== undefined && <span className="font-display tabular text-base font-semibold">{pts}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SeasonComplete({ state }: { state: GameState }) {
+  const champ = champion(state);
+  const won = champ === USER_TEAM;
+  return (
+    <div>
+      <PageHeader title={won ? "National champions" : "Season complete"} sub="Season 1 · Final" />
+      {champ && (
+        <div
+          className={cx(
+            "mb-5 flex items-center gap-4 rounded-lg border p-5 sm:p-8",
+            won ? "border-gold/50 bg-gradient-to-br from-gold/20 via-panel to-panel" : "border-line bg-panel",
+          )}
+        >
+          <TeamBadge id={champ} size="xl" />
+          <div>
+            <p className="font-display text-xs tracking-[0.2em] text-gold">National champion</p>
+            <p className="font-display text-3xl leading-tight font-bold sm:text-5xl">{TEAMS[champ].name}</p>
+            <p className="mt-1 text-muted">
+              {won ? "The Stallions finish what they started. Reset the save from the footer to run it back." : "Reset the save from the footer to take another shot."}
+            </p>
+          </div>
+        </div>
+      )}
+      <Bracket state={state} />
+    </div>
+  );
+}
+
 // ---- Recap ------------------------------------------------------------------------
 
 function Recap({ recap, fresh, onBack }: { recap: WeekRecap; fresh: boolean; onBack: () => void }) {
-  const { dispatch } = useGame();
+  const { state, dispatch } = useGame();
   const router = useRouter();
   const g = recap.game;
-  const o = outcome(g);
+  const o = g ? outcome(g) : null;
   const moved = recap.rankBefore - recap.rankAfter;
+  const regular = recap.week <= FINAL_WEEK;
 
   const finish = () => {
     if (fresh) dispatch({ type: "recap/seen" });
     onBack();
-    if (fresh) router.push("/");
+    // After a regular-season week, go back to the dashboard; in the playoffs stay here for the next round.
+    if (fresh && regular && recap.week !== FINAL_WEEK) router.push("/");
   };
+
+  const title = o ? (o.won ? (recap.week === TITLE_WEEK ? "Champions" : "Victory") : "Defeat") : `${weekLabel(recap.week)} results`;
 
   return (
     <div>
       <PageHeader
-        title={o.won ? "Victory" : "Defeat"}
-        sub={`Season 1 · Week ${recap.week} · Final${g.overtime ? " / OT" : ""}`}
-        right={<Button onClick={finish}>{fresh ? "Continue" : "Back to game plan"}</Button>}
+        title={title}
+        sub={`Season 1 · ${weekLabel(recap.week)} · Final${g?.overtime ? " / OT" : ""}`}
+        right={<Button onClick={finish}>{fresh ? "Continue" : "Back"}</Button>}
       />
 
-      <Scoreboard g={g} />
-
-      <div className="mt-5 grid gap-5 lg:grid-cols-3">
-        <Panel kicker="How it happened" title="Scoring summary" className="lg:col-span-2">
-          <ScoringSummary drives={g.drives} g={g} />
-        </Panel>
-        <div className="space-y-5">
-          <Panel kicker="Committee" title="Rankings impact">
-            <div className="grid grid-cols-3 gap-2">
-              <Stat label="Before" value={`#${recap.rankBefore}`} />
-              <Stat label="After" value={`#${recap.rankAfter}`} tone={moved > 0 ? "good" : moved < 0 ? "bad" : undefined} />
-              <Stat label="Move" value={moved === 0 ? "—" : moved > 0 ? `▲${moved}` : `▼${-moved}`} tone={moved > 0 ? "good" : moved < 0 ? "bad" : undefined} />
-            </div>
-            <p className="mt-3 text-sm text-muted">
-              {recap.rankAfter <= 12 ? "Inside the 12-team field." : `${recap.rankAfter - 12} spot${recap.rankAfter - 12 === 1 ? "" : "s"} outside the field.`}{" "}
-              <Link href="/rankings" className="text-accent-hi hover:underline">
-                Full rankings
-              </Link>
-            </p>
-          </Panel>
-          {(g.notes.length > 0 || recap.bidUpdates.length > 0) && (
-            <Panel kicker="Front office" title="Notes">
-              <ul className="space-y-2 text-sm">
-                {g.notes.map((n) => (
-                  <li key={n} className="flex gap-2">
-                    <Tag tone="gold">Injury</Tag>
-                    <span>{n}</span>
-                  </li>
-                ))}
-                {recap.bidUpdates.map((u) => (
-                  <li key={u.playerId} className="flex gap-2">
-                    <Tag tone={u.status === "signed" ? "good" : "muted"}>Portal</Tag>
-                    <span>
-                      {findPortalPlayer(u.playerId)!.name} {u.status === "signed" ? "signed with the Stallions." : "went elsewhere. NIL and scholarship returned."}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+      {g && (
+        <>
+          <Scoreboard g={g} />
+          <div className="mt-5 grid gap-5 lg:grid-cols-3">
+            <Panel kicker="How it happened" title="Scoring summary" className="lg:col-span-2">
+              <ScoringSummary drives={g.drives} g={g} />
             </Panel>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-5 lg:grid-cols-3">
-        <Panel kicker="Box score" title="Top performers" className="lg:col-span-2">
-          <Performers g={g} />
-        </Panel>
-        <Panel kicker="Tale of the tape" title="Team stats">
-          <TeamStats g={g} />
-        </Panel>
-      </div>
-
-      <Panel kicker={`Week ${recap.week}`} title="Around the league" className="mt-5">
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {recap.others.map((r) => {
-            const homeWon = r.homeScore > r.awayScore;
-            return (
-              <div key={r.home} className="rounded-md border border-line bg-bg-2/70 px-3 py-2">
-                {(
-                  [
-                    [r.away, r.awayScore, !homeWon],
-                    [r.home, r.homeScore, homeWon],
-                  ] as const
-                ).map(([id, pts, won]) => (
-                  <div key={id} className="flex items-center gap-2 py-0.5">
-                    <TeamBadge id={id} size="sm" />
-                    <span className={cx("flex-1 truncate text-sm", won ? "font-semibold" : "text-muted")}>
-                      {TEAMS[id].name}
-                    </span>
-                    <span className={cx("font-display tabular text-lg", won ? "font-bold" : "text-muted")}>{pts}</span>
+            <div className="space-y-5">
+              {regular ? (
+                <Panel kicker="Committee" title="Rankings impact">
+                  <div className="grid grid-cols-3 gap-2">
+                    <Stat label="Before" value={`#${recap.rankBefore}`} />
+                    <Stat label="After" value={`#${recap.rankAfter}`} tone={moved > 0 ? "good" : moved < 0 ? "bad" : undefined} />
+                    <Stat label="Move" value={moved === 0 ? "—" : moved > 0 ? `▲${moved}` : `▼${-moved}`} tone={moved > 0 ? "good" : moved < 0 ? "bad" : undefined} />
                   </div>
-                ))}
-              </div>
-            );
-          })}
+                  <p className="mt-3 text-sm text-muted">
+                    {recap.rankAfter <= 12 ? "Inside the 12-team field." : `${recap.rankAfter - 12} spot${recap.rankAfter - 12 === 1 ? "" : "s"} outside the field.`}{" "}
+                    <Link href="/rankings" className="text-accent-hi hover:underline">
+                      Full rankings
+                    </Link>
+                  </p>
+                </Panel>
+              ) : (
+                <Panel kicker="Playoff" title={o?.won ? (recap.week === TITLE_WEEK ? "National champions" : "Advancing") : "Eliminated"}>
+                  <p className="text-sm text-muted">
+                    {o?.won ? (recap.week === TITLE_WEEK ? "The title is yours." : `On to the ${PLAYOFF_ROUNDS[roundOf(recap.week) + 1].toLowerCase()}.`) : "The season ends here."}
+                  </p>
+                </Panel>
+              )}
+              <FrontOfficeNotes recap={recap} g={g} />
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-5 lg:grid-cols-3">
+            <Panel kicker="Box score" title="Top performers" className="lg:col-span-2">
+              <Performers g={g} />
+            </Panel>
+            <Panel kicker="Tale of the tape" title="Team stats">
+              <TeamStats g={g} />
+            </Panel>
+          </div>
+        </>
+      )}
+
+      {!g && <FrontOfficeNotes recap={recap} />}
+
+      {regular ? (
+        <Panel kicker={weekLabel(recap.week)} title="Around the league" className="mt-5">
+          <ScoreGrid scores={recap.others} />
+        </Panel>
+      ) : (
+        <div className="mt-5">
+          <Bracket state={state} />
         </div>
-      </Panel>
+      )}
+    </div>
+  );
+}
+
+function FrontOfficeNotes({ recap, g }: { recap: WeekRecap; g?: GameResult }) {
+  const notes = g?.notes ?? [];
+  if (!notes.length && !recap.bidUpdates.length && !recap.injuryUpdates.length) return null;
+  return (
+    <Panel kicker="Front office" title="Notes">
+      <ul className="space-y-2 text-sm">
+        {notes.map((n) => (
+          <li key={n} className="flex gap-2">
+            <Tag tone="gold">Game</Tag>
+            <span>{n}</span>
+          </li>
+        ))}
+        {recap.injuryUpdates.map((u) => (
+          <li key={u.playerId + u.text} className="flex gap-2">
+            <Tag tone={u.text.includes("healthy") ? "good" : "accent"}>Injury</Tag>
+            <span>{u.text}</span>
+          </li>
+        ))}
+        {recap.bidUpdates.map((u) => (
+          <li key={u.playerId} className="flex gap-2">
+            <Tag tone={u.status === "signed" ? "good" : "muted"}>Portal</Tag>
+            <span>
+              {findPortalPlayer(u.playerId)!.name} {u.status === "signed" ? "signed and joins the depth chart." : "went elsewhere. NIL and scholarship returned."}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+function ScoreGrid({ scores }: { scores: Score[] }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {scores.map((r) => {
+        const homeWon = r.homeScore > r.awayScore;
+        return (
+          <div key={r.home} className="rounded-md border border-line bg-bg-2/70 px-3 py-2">
+            {(
+              [
+                [r.away, r.awayScore, !homeWon],
+                [r.home, r.homeScore, homeWon],
+              ] as const
+            ).map(([id, pts, won]) => (
+              <div key={id} className="flex items-center gap-2 py-0.5">
+                <TeamBadge id={id} size="sm" />
+                <span className={cx("flex-1 truncate text-sm", won ? "font-semibold" : "text-muted")}>{TEAMS[id].name}</span>
+                <span className={cx("font-display tabular text-lg", won ? "font-bold" : "text-muted")}>{pts}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -529,7 +780,7 @@ function TeamStats({ g }: { g: GameResult }) {
                 <span className="text-[10px] tracking-widest text-muted">{label}</span>
                 <span className={hBetter ? "font-bold" : "text-muted"}>{h}</span>
               </div>
-              <div className="mt-1 flex h-1.5 gap-0.5 overflow-hidden rounded-full">
+              <div className="mt-1 flex h-1.5 gap-0.5 overflow-hidden rounded-full bg-line">
                 <div style={{ width: `${(a / total) * 100}%`, background: g.away === USER_TEAM ? "var(--accent)" : "#56607d" }} />
                 <div style={{ width: `${(h / total) * 100}%`, background: g.home === USER_TEAM ? "var(--accent)" : "#56607d" }} />
               </div>
@@ -537,84 +788,6 @@ function TeamStats({ g }: { g: GameResult }) {
           );
         })}
       </ul>
-    </div>
-  );
-}
-
-// ---- Selection day ------------------------------------------------------------------
-
-function SelectionDay({ state }: { state: GameState }) {
-  const field = playoffField(state);
-  const me = standingOf(state, USER_TEAM)!;
-  const seed = field.find((t) => t.id === USER_TEAM)?.seed;
-  const firstRound = [
-    [5, 12],
-    [6, 11],
-    [7, 10],
-    [8, 9],
-  ];
-  return (
-    <div>
-      <PageHeader title="Selection day" sub="Season 1 · The 12-team field is set" />
-      <div
-        className={cx(
-          "rounded-lg border p-5 sm:p-8",
-          seed ? "border-good/40 bg-gradient-to-br from-good/15 to-panel" : "border-accent/40 bg-gradient-to-br from-accent/15 to-panel",
-        )}
-      >
-        <div className="flex items-center gap-4">
-          <TeamBadge id={USER_TEAM} size="xl" />
-          <div>
-            <p className="font-display text-xs tracking-[0.2em] text-muted">
-              {me.wins}–{me.losses} · Final ranking #{me.rank}
-            </p>
-            <p className="font-display text-3xl leading-tight font-bold sm:text-5xl">{seed ? `You're in — No. ${seed} seed` : "Left out of the field"}</p>
-            <p className="mt-1 text-muted">
-              {seed
-                ? seed <= 4
-                  ? "First-round bye. Rest up — the quarterfinal comes to you."
-                  : `First round: ${seed <= 8 ? "hosting" : "at"} No. ${17 - seed} ${TEAMS[field[16 - seed].id].name}.`
-                : `${me.rank - 12} spot${me.rank - 12 === 1 ? "" : "s"} short. The committee went with ${TEAMS[field[11].id].name} for the last at-large.`}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-5 lg:grid-cols-2">
-        <Panel kicker="The bracket" title="First round">
-          <ul className="space-y-2">
-            {firstRound.map(([a, b]) => (
-              <li key={a} className="flex items-center gap-2 rounded-md border border-line bg-bg-2/70 px-3 py-2">
-                {[a, b].map((s, i) => {
-                  const t = field[s - 1];
-                  return (
-                    <div key={s} className={cx("flex flex-1 items-center gap-2", i === 1 && "flex-row-reverse text-right")}>
-                      <span className="font-display tabular w-5 text-sm text-dim">{s}</span>
-                      <TeamBadge id={t.id} size="sm" />
-                      <span className={cx("truncate text-sm", t.id === USER_TEAM && "font-bold text-accent-hi")}>{TEAMS[t.id].name}</span>
-                    </div>
-                  );
-                })}
-              </li>
-            ))}
-          </ul>
-        </Panel>
-        <Panel kicker="Seeds 1–4" title="First-round byes">
-          <ul className="space-y-2">
-            {field.slice(0, 4).map((t) => (
-              <li key={t.id} className="flex items-center gap-3 rounded-md border border-line bg-bg-2/70 px-3 py-2">
-                <span className="font-display tabular w-5 text-lg font-bold text-accent-hi">{t.seed}</span>
-                <TeamBadge id={t.id} size="sm" />
-                <span className={cx("flex-1 truncate", t.id === USER_TEAM && "font-bold text-accent-hi")}>{TEAMS[t.id].name}</span>
-                <span className="font-display tabular text-sm text-muted">
-                  {t.wins}–{t.losses}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-4 text-sm text-muted">The playoff itself is coming in a later update. For now, start a new season from the footer to replay the run-in.</p>
-        </Panel>
-      </div>
     </div>
   );
 }

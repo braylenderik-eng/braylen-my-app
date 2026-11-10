@@ -1,4 +1,6 @@
 import { TEAMS, UNITS, type TeamId } from "@/lib/game/data";
+import { generatedUnits, unitsFor } from "@/lib/game/roster";
+import { lineup, type GameState } from "@/lib/game/state";
 import { cx } from "./ui";
 
 export const UNIT_MATCHUPS = [
@@ -12,10 +14,10 @@ export const UNIT_MATCHUPS = [
   { label: "LB vs QB", ours: "LB", theirs: "QB", side: "stop" },
 ] as const;
 
-export function unitEdges(us: TeamId, them: TeamId) {
-  const a = UNITS[us];
-  const b = UNITS[them];
-  if (!a || !b) return [];
+/** Our starters (from the depth chart) against the opponent's position groups. */
+export function unitEdges(state: GameState, us: TeamId, them: TeamId) {
+  const a = unitsFor(lineup(state));
+  const b = UNITS[them] ?? generatedUnits(them);
   return UNIT_MATCHUPS.map((m) => {
     const ours = a[m.ours];
     const theirs = b[m.theirs];

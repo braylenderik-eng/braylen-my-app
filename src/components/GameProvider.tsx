@@ -23,9 +23,10 @@ function rootReducer(r: Root, a: Internal): Root {
 }
 
 export function GameProvider({ children }: { children: ReactNode }) {
-  const [{ game: state, hydrated }, dispatch] = useReducer(rootReducer, undefined, () => ({ game: initialState(), hydrated: false }));
+  const [{ game: state, hydrated }, dispatch] = useReducer(rootReducer, undefined, () => ({ game: initialState(0), hydrated: false }));
 
   // Load the save after mount so the server render and first client render match.
+  // (Before that, a fixed-seed placeholder renders hidden; loadState gives a new save a random seed.)
   useEffect(() => {
     let raw: string | null = null;
     try {

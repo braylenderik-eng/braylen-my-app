@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { TEAMS, USER_TEAM, type Fixture, type TeamId } from "@/lib/game/data";
 import { hashSeed, simulateGame } from "@/lib/game/sim";
-import { boostsFor, playoffOdds, standingOf, userFixture, type GameState } from "@/lib/game/state";
+import { currentUserFixture, isPlayoffs, playoffOdds, seedOf, standingOf, userSimOptions, type GameState } from "@/lib/game/state";
 import { pct, spreadFor } from "@/lib/format";
 import { ProbBar, TeamBadge } from "./ui";
 
@@ -15,32 +15,27 @@ export interface MatchupInfo {
   winProb: number; // for the user
   spread: number; // user's line (negative = favored)
   total: number; // over/under
-  odds: { now: number; win: number; loss: number };
+  odds: { now: number; win: number; loss: number } | null; // null in the playoffs
+  neutral: boolean;
 }
 
 /** Odds, line and playoff stakes for the user's game this week. Recomputes when the plan changes. */
 export function useMatchup(state: GameState): MatchupInfo | null {
-  const fixture = userFixture(state.week);
-  const { plan, hype } = state;
-  const boostsKey = JSON.stringify(boostsFor(state));
-  const standingsKey = state.standings.map((t) => t.score).join(",");
+  const fixture = currentUserFixture(state);
+  // Everything the odds depend on: the user's lineup, plan, injuries, standings and bracket.
+  const key = JSON.stringify([fixture, state.plan, state.hype, state.depth, state.injuries, state.gameTime, state.players.length, state.standings.map((t) => t.score), state.week]);
 
   return useMemo(() => {
     if (!fixture) return null;
-    const boosts = JSON.parse(boostsKey);
+    const opts = userSimOptions(state);
+    const neutral = (fixture as { neutral?: boolean }).neutral ?? false;
     const home = fixture.home === USER_TEAM;
     const them = home ? fixture.away : fixture.home;
     const runs = 500;
     let wins = 0;
     let points = 0;
     for (let i = 0; i < runs; i++) {
-      const g = simulateGame(fixture.home, fixture.away, hashSeed("line", state.week, i), {
-        userTeam: USER_TEAM,
-        plan,
-        hype,
-        boosts,
-        fast: true,
-      });
+      const g = simulateGame(fixture.home, fixture.away, hashSeed("line", state.week, i), { ...opts, neutral, fast: true });
       const ours = home ? g.homeScore : g.awayScore;
       const theirs = home ? g.awayScore : g.homeScore;
       if (ours > theirs) wins++;
@@ -52,13 +47,14 @@ export function useMatchup(state: GameState): MatchupInfo | null {
       us: USER_TEAM,
       them,
       home,
+      neutral,
       winProb,
       spread: spreadFor(winProb),
       total: Math.round((points / runs) * 2) / 2,
-      odds: { now: playoffOdds(state), win: playoffOdds(state, "win"), loss: playoffOdds(state, "loss") },
+      odds: isPlayoffs(state) ? null : { now: playoffOdds(state), win: playoffOdds(state, "win"), loss: playoffOdds(state, "loss") },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fixture, plan, hype, boostsKey, standingsKey, state.week]);
+  }, [key]);
 }
 
 export function MatchupHero({ state, m, compact }: { state: GameState; m: MatchupInfo; compact?: boolean }) {
@@ -76,7 +72,7 @@ export function MatchupHero({ state, m, compact }: { state: GameState; m: Matchu
         <div className="min-w-0">
           <p className="font-display text-[10px] tracking-[0.2em] text-muted">{id === m.us ? "Us" : "Opponent"}</p>
           <p className="font-display truncate text-xl leading-tight font-bold sm:text-3xl">
-            <span className="text-accent-hi">#{st.rank}</span> {TEAMS[id].name}
+            <span className="text-accent-hi">{isPlayoffs(state) ? `(${seedOf(state, id)})` : `#${st.rank}`}</span> {TEAMS[id].name}
           </p>
           <p className="font-display tabular text-sm text-muted">
             {st.wins}–{st.losses} · {TEAMS[id].conf}
@@ -93,7 +89,7 @@ export function MatchupHero({ state, m, compact }: { state: GameState; m: Matchu
       <div className="relative flex flex-col gap-5 md:flex-row md:items-center">
         {side(left, "left")}
         <div className="flex shrink-0 flex-col items-center gap-2 md:w-72">
-          <span className="font-display rounded border border-line-2 bg-bg/60 px-3 py-0.5 text-sm font-bold tracking-widest">AT</span>
+          <span className="font-display rounded border border-line-2 bg-bg/60 px-3 py-0.5 text-sm font-bold tracking-widest">{m.neutral ? "VS" : "AT"}</span>
           <div className="font-display tabular flex w-full items-center justify-between text-lg font-bold">
             <span style={{ color: left === m.us ? "var(--accent-hi)" : "var(--muted)" }}>{pct(leftProb)}</span>
             <span className="text-[10px] font-normal tracking-[0.2em] text-muted">Win probability</span>

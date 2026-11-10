@@ -32,7 +32,7 @@ test("game plan shows the Rangers game and the sim button plays it", async () =>
   expect(screen.getByRole("heading", { level: 1, name: /victory|defeat/i })).toBeInTheDocument();
   expect(screen.getByText(/scoring summary/i)).toBeInTheDocument();
 
-  const saved = JSON.parse(window.localStorage.getItem("portal-wars-v2")!);
+  const saved = JSON.parse(window.localStorage.getItem("portal-wars-v3")!);
   expect(saved.week).toBe(12);
   vi.useRealTimers();
 });

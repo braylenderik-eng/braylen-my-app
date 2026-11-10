@@ -1,7 +1,7 @@
 "use client";
 
-import { BYE_SEEDS, FINAL_WEEK, PLAYOFF_FIELD, TEAMS, USER_TEAM } from "@/lib/game/data";
-import { playoffOdds, standingOf, userFixture } from "@/lib/game/state";
+import { BYE_SEEDS, PLAYOFF_FIELD, TEAMS, USER_TEAM } from "@/lib/game/data";
+import { playoffOdds, regularSeasonOver, scheduleFixture, standingOf } from "@/lib/game/state";
 import { pct, signed } from "@/lib/format";
 import { useMemo } from "react";
 import { useGame } from "../GameProvider";
@@ -10,9 +10,9 @@ import { cx, PageHeader, Panel, Stat, Tag, TeamBadge } from "../ui";
 export function Rankings() {
   const { state } = useGame();
   const me = standingOf(state, USER_TEAM)!;
-  const over = state.week > FINAL_WEEK;
+  const over = regularSeasonOver(state);
   const odds = useMemo(() => playoffOdds(state), [state]);
-  const next = userFixture(state.week);
+  const next = scheduleFixture(state.week);
   const opp = next ? (next.home === USER_TEAM ? next.away : next.home) : null;
 
   return (

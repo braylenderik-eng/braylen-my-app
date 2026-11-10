@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { FINAL_WEEK } from "@/lib/game/data";
 import { money } from "@/lib/format";
+import { weekLabel } from "@/lib/game/state";
 import { Button, cx, Dialog } from "./ui";
 import { useGame } from "./GameProvider";
 
 const NAV = [
   { href: "/", label: "Dashboard" },
   { href: "/sim", label: "Game plan" },
+  { href: "/roster", label: "Roster" },
   { href: "/recruiting", label: "Recruiting" },
   { href: "/portal", label: "Portal" },
   { href: "/rankings", label: "Rankings" },
@@ -21,7 +22,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { state, dispatch, hydrated } = useGame();
   const path = usePathname();
   const [confirmReset, setConfirmReset] = useState(false);
-  const over = state.week > FINAL_WEEK;
   const pendingRook = state.rook.decision === null;
 
   return (
@@ -34,7 +34,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <nav aria-label="Main" className="scrollbar-none -mb-px flex flex-1 gap-1 overflow-x-auto">
             {NAV.map((n) => {
               const active = n.href === "/" ? path === "/" : path.startsWith(n.href);
-              const dot = (n.href === "/recruiting" && pendingRook) || (n.href === "/sim" && state.unseenRecap);
+              const hurt = Object.values(state.injuries).some((i) => i.status === "questionable");
+              const dot = (n.href === "/recruiting" && pendingRook) || (n.href === "/sim" && state.unseenRecap) || (n.href === "/roster" && hurt);
               return (
                 <Link
                   key={n.href}
@@ -54,7 +55,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="hidden shrink-0 items-center gap-3 md:flex">
             <div className="text-right leading-tight">
               <p className="font-display text-sm font-semibold">Season 1</p>
-              <p className="font-display text-[10px] tracking-widest text-muted">{over ? "Selection day" : `Week ${state.week}`}</p>
+              <p className="font-display text-[10px] tracking-widest text-muted">{weekLabel(state.week)}</p>
             </div>
             <span className="font-display tabular rounded-md bg-accent/15 px-2.5 py-1.5 text-sm font-semibold text-accent-hi ring-1 ring-accent/30">
               NIL {money(state.nilBudget)}
@@ -65,7 +66,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="border-b border-line bg-bg-2/60 md:hidden">
         <div className="font-display mx-auto flex max-w-7xl items-center justify-between px-4 py-2 text-xs tracking-widest text-muted">
-          <span>Season 1 · {over ? "Selection day" : `Week ${state.week}`}</span>
+          <span>Season 1 · {weekLabel(state.week)}</span>
           <span className="text-accent-hi">NIL {money(state.nilBudget)}</span>
         </div>
       </div>
@@ -86,7 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </footer>
 
       <Dialog open={confirmReset} title="Start the season over?" onClose={() => setConfirmReset(false)}>
-        <p className="text-sm text-muted">This erases your decisions, bids and results and goes back to Week 11.</p>
+        <p className="text-sm text-muted">This erases your decisions, bids, depth chart and results and goes back to Week 11.</p>
         <div className="mt-5 grid grid-cols-2 gap-3">
           <Button variant="outline" onClick={() => setConfirmReset(false)}>
             Cancel

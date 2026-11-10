@@ -1,30 +1,11 @@
 // Drive-by-drive football sim. Pure functions only: same inputs + seed => same game.
 
 import { DEPTH, TEAMS, type Skill, type TeamId } from "./data";
+import { generatedSkill } from "./roster";
 
-// ---- Seeded RNG (mulberry32) ----------------------------------------------------
+import { hashSeed, makeRng, type Rng } from "./rng";
 
-export type Rng = () => number;
-
-export function makeRng(seed: number): Rng {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-export function hashSeed(...parts: (string | number)[]): number {
-  let h = 2166136261;
-  for (const ch of parts.join("|")) {
-    h ^= ch.charCodeAt(0);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
+export { hashSeed, makeRng };
 
 const int = (rng: Rng, lo: number, hi: number) => lo + Math.floor(rng() * (hi - lo + 1));
 const pick = <T,>(rng: Rng, xs: readonly T[]) => xs[Math.floor(rng() * xs.length)];
@@ -34,15 +15,12 @@ const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x
 
 export type OffensePlan = "ground" | "balanced" | "air";
 export type DefensePlan = "pressure" | "base" | "bend";
-export type InjuryCall = "start" | "rest";
-
 export interface GamePlan {
   offense: OffensePlan;
   defense: DefensePlan;
-  injury: InjuryCall;
 }
 
-export const DEFAULT_PLAN: GamePlan = { offense: "balanced", defense: "base", injury: "rest" };
+export const DEFAULT_PLAN: GamePlan = { offense: "balanced", defense: "base" };
 
 interface SideMods {
   eff: number; // added to offensive efficiency
@@ -120,6 +98,15 @@ export interface GameResult {
   stats: StatLine[];
   totals: Record<"home" | "away", TeamTotals>;
   notes: string[]; // injury and plan notes surfaced to the recap
+  reinjured: string[]; // names of players who got hurt again mid-game
+}
+
+/** A questionable starter the user chose to play: may re-injure mid-game and cost rating. */
+export interface GameTimeRisk {
+  name: string;
+  pos: string;
+  chance: number;
+  loss: { off: number; def: number };
 }
 
 export interface SimOptions {
@@ -128,23 +115,17 @@ export interface SimOptions {
   userTeam?: TeamId;
   /** Hype 0-100; the user's crowd gets louder at home above 60. */
   hype?: number;
-  /** Rating bonuses from signed transfers or other events, keyed by team. */
-  boosts?: Partial<Record<TeamId, { off?: number; def?: number }>>;
+  /** Absolute ratings that replace a team's base ratings (the user's lineup). */
+  ratings?: Partial<Record<TeamId, { off: number; def: number }>>;
+  /** Play-by-play names that replace a team's depth chart. */
+  skill?: Partial<Record<TeamId, Skill>>;
+  /** Questionable players the user is starting. */
+  risks?: GameTimeRisk[];
+  /** Neutral site: no home-field edge. */
+  neutral?: boolean;
   /** Skip building stat lines and drive text (much faster; used for odds). */
   fast?: boolean;
 }
-
-const GENERIC: Skill = {
-  qb: "QB1",
-  rb: ["RB1", "RB2"],
-  receivers: [
-    { name: "WR1", pos: "WR", share: 0.4 },
-    { name: "WR2", pos: "WR", share: 0.35 },
-    { name: "TE1", pos: "TE", share: 0.25 },
-  ],
-  k: "K",
-  defense: [{ name: "Defense", pos: "DEF" }],
-};
 
 const HOME_EDGE = 1.5;
 
@@ -158,29 +139,20 @@ export function simulateGame(home: TeamId, away: TeamId, seed: number, opts: Sim
   const plan = opts.plan ?? DEFAULT_PLAN;
   const notes: string[] = [];
 
-  const rating = (id: TeamId) => {
-    const t = TEAMS[id];
-    const b = opts.boosts?.[id] ?? {};
-    return { off: t.off + (b.off ?? 0), def: t.def + (b.def ?? 0) };
-  };
-  const r = { home: rating(home), away: rating(away) };
-
-  // Injury call: resting the RT costs a little offense; starting him risks losing more mid-game.
-  let injuryAtDrive = -1;
+  const rating = (id: TeamId) => opts.ratings?.[id] ?? { off: TEAMS[id].off, def: TEAMS[id].def };
+  const r = { home: { ...rating(home) }, away: { ...rating(away) } };
   const userSide: "home" | "away" | null = user === home ? "home" : user === away ? "away" : null;
-  if (userSide) {
-    if (plan.injury === "rest") {
-      r[userSide].off -= 1.5;
-      notes.push("RT Andre Marquez rested. Backup Luke Ivers held up, but the edge leaked a few times.");
-    } else if (rng() < 0.3) {
-      injuryAtDrive = int(rng, 6, 16);
-    } else {
-      notes.push("RT Andre Marquez started and finished. The ankle held.");
-    }
-    if (userSide === "home" && (opts.hype ?? 50) > 60) r.home.off += 1;
-  }
+  if (userSide === "home" && !opts.neutral && (opts.hype ?? 50) > 60) r.home.off += 1;
 
-  const skill = { home: DEPTH[home] ?? GENERIC, away: DEPTH[away] ?? GENERIC };
+  // Questionable starters: each may re-injure at some point in the game.
+  const risks = (opts.risks ?? []).map((k) => ({ ...k, atDrive: rng() < k.chance ? int(rng, 4, 18) : -1 }));
+  const reinjured: string[] = [];
+  for (const k of risks) if (k.atDrive < 0) notes.push(`${k.pos} ${k.name} started and finished. He held up.`);
+
+  const skill = {
+    home: opts.skill?.[home] ?? DEPTH[home] ?? generatedSkill(home),
+    away: opts.skill?.[away] ?? DEPTH[away] ?? generatedSkill(away),
+  };
   const stats = new Map<string, StatLine>();
   const line = (team: TeamId, name: string, pos: string) => {
     const key = `${team}:${name}`;
@@ -218,12 +190,18 @@ export function simulateGame(home: TeamId, away: TeamId, seed: number, opts: Sim
     const om = offMods(side);
     const dm = defMods(side);
 
-    if (side === userSide && idx === injuryAtDrive) {
-      r[side].off -= 3;
-      notes.push(`RT Andre Marquez re-aggravated the ankle in the ${ordinal(quarter)} quarter and did not return.`);
+    if (userSide) {
+      for (const k of risks) {
+        if (k.atDrive === idx) {
+          r[userSide].off -= k.loss.off;
+          r[userSide].def -= k.loss.def;
+          reinjured.push(k.name);
+          notes.push(`${k.pos} ${k.name} got hurt again in the ${quarter === 5 ? "overtime" : `${ordinal(quarter)} quarter`} and did not return.`);
+        }
+      }
     }
 
-    const edge = r[side].off - r[other].def + (side === "home" ? HOME_EDGE : 0) + om.eff + dm.eff;
+    const edge = r[side].off - r[other].def + (side === "home" && !opts.neutral ? HOME_EDGE : 0) + om.eff + dm.eff;
     const big = om.bigPlay * dm.bigPlay;
     const pTD = clamp((0.26 + 0.011 * edge) * (0.85 + 0.15 * big), 0.06, 0.6);
     const pFG = clamp(0.13 + 0.002 * edge + dm.fgShift, 0.04, 0.3);
@@ -362,6 +340,7 @@ export function simulateGame(home: TeamId, away: TeamId, seed: number, opts: Sim
     stats: [...stats.values()],
     totals,
     notes,
+    reinjured,
   };
 }
 

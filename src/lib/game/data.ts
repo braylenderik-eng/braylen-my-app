@@ -103,7 +103,7 @@ export const SCHEDULE: Record<number, Fixture[]> = {
   ],
 };
 
-// ---- Depth charts used by the play-by-play sim -------------------------------
+// ---- Opponent depth charts used by the play-by-play sim (the Stallions come from roster.ts) -------------------------------
 
 export interface Skill {
   qb: string;
@@ -114,22 +114,6 @@ export interface Skill {
 }
 
 export const DEPTH: Partial<Record<TeamId, Skill>> = {
-  stallions: {
-    qb: "Tate Whitfield",
-    rb: ["Marcus Lyle", "Jaylen Ortiz"],
-    receivers: [
-      { name: "Devin Shaw", pos: "WR", share: 0.36 },
-      { name: "Isaiah Grant", pos: "WR", share: 0.28 },
-      { name: "Owen Pruitt", pos: "TE", share: 0.2 },
-      { name: "Rico Valdez", pos: "WR", share: 0.16 },
-    ],
-    k: "Sam Delgado",
-    defense: [
-      { name: "Trey Okoye", pos: "EDGE" },
-      { name: "Cam Buckner", pos: "LB" },
-      { name: "Reggie Vance", pos: "CB" },
-    ],
-  },
   rangers: {
     qb: "Bo Castillo",
     rb: ["Dante Rhodes", "Eli Swanson"],
@@ -162,16 +146,6 @@ export const DEPTH: Partial<Record<TeamId, Skill>> = {
 
 /** Position-group ratings shown on the matchup cards. */
 export const UNITS: Partial<Record<TeamId, Record<string, { name: string; rating: number }>>> = {
-  stallions: {
-    QB: { name: "Tate Whitfield", rating: 86 },
-    RB: { name: "Marcus Lyle", rating: 84 },
-    WR: { name: "Devin Shaw", rating: 87 },
-    OL: { name: "OL unit", rating: 82 },
-    DL: { name: "DL unit", rating: 81 },
-    EDGE: { name: "Trey Okoye", rating: 85 },
-    CB: { name: "Reggie Vance", rating: 83 },
-    LB: { name: "Cam Buckner", rating: 80 },
-  },
   rangers: {
     QB: { name: "Bo Castillo", rating: 81 },
     RB: { name: "Dante Rhodes", rating: 82 },

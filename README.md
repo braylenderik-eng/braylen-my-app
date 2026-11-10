@@ -1,8 +1,8 @@
 # Portal Wars
 
 A college football GM game prototype. You run the Lone Star Stallions through the end of Season 1: answer a five-star
-recruit's $1.1M ultimatum, work the transfer portal, set a game plan, sim your games and see if the committee puts you
-in the 12-team field. All teams and players are fictional.
+recruit's $1.1M ultimatum, work the transfer portal, set your depth chart and game plan, sim your games, and chase a
+title through the 12-team playoff. All teams and players are fictional.
 
 Built with Next.js 16, TypeScript and Tailwind CSS. Progress is saved in the browser.
 
@@ -20,7 +20,8 @@ Then open http://localhost:3000.
 | Route         | What it is                                                                      |
 | ------------- | ------------------------------------------------------------------------------- |
 | `/`           | Weekly preview: game of the week, position matchups, playoff odds, league games |
-| `/sim`        | Game plan and the **Sim game** button; post-game recap; Selection Day           |
+| `/sim`        | Game plan and the **Sim game** button; post-game recap; playoff bracket         |
+| `/roster`     | Depth chart, injuries and player cards                                          |
 | `/recruiting` | Jalen Rook's ultimatum and NIL offers                                           |
 | `/portal`     | Transfer portal: search, filter, scout and bid                                  |
 | `/rankings`   | Committee rankings                                                              |
@@ -28,11 +29,18 @@ Then open http://localhost:3000.
 
 ## How the sim works
 
-`src/lib/game/sim.ts` plays a game drive by drive with a seeded random generator, so the same week always plays out
-the same way. Each drive ends in a touchdown, field goal, punt or turnover, with odds driven by offense vs. defense
-ratings, home field, and your game plan. `src/lib/game/state.ts` holds the season: decisions, bids, the weekly sim
-of every game, committee re-ranking and playoff odds. Both are plain TypeScript with no React, and have tests in
-`src/lib/game/__tests__`.
+`src/lib/game/sim.ts` plays a game drive by drive with a seeded random generator. Each save gets its own seed, so
+seasons play out differently, but a given save is reproducible. Each drive ends in a touchdown, field goal, punt or
+turnover, with odds driven by offense vs. defense ratings, home field (none at neutral playoff sites) and your game plan.
+
+`src/lib/game/roster.ts` turns the Stallions depth chart into those ratings: the top healthy players at each position
+start, and their OVRs (weighted by position) move the team's offense and defense ratings. Questionable players sit
+unless you start them, and a started questionable player can get hurt again mid-game. Transfers you sign join the
+depth chart; Jalen Rook, a high-school signee, enrolls next season.
+
+`src/lib/game/state.ts` holds the season: decisions, bids, injuries, season stats, the weekly sim of every game,
+committee re-ranking, playoff odds, and the bracket (weeks 11–12 are the regular season, then four playoff rounds).
+All three are plain TypeScript with no React, and have tests in `src/lib/game/__tests__`.
 
 ## Scripts
 
