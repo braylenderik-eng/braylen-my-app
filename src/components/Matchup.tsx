@@ -71,7 +71,7 @@ export function MatchupHero({ state, m, compact }: { state: GameState; m: Matchu
         <TeamBadge id={id} size={compact ? "lg" : "xl"} />
         <div className="min-w-0">
           <p className="font-display text-[10px] tracking-[0.2em] text-muted">{id === m.us ? "Us" : "Opponent"}</p>
-          <p className="font-display truncate text-xl leading-tight font-bold sm:text-3xl">
+          <p className="font-display truncate text-xl leading-tight font-bold sm:text-2xl">
             <span className="text-accent-hi">{isPlayoffs(state) ? `(${seedOf(state, id)})` : `#${st.rank}`}</span> {TEAMS[id].name}
           </p>
           <p className="font-display tabular text-sm text-muted">

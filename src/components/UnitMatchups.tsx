@@ -17,7 +17,7 @@ export const UNIT_MATCHUPS = [
 /** Our starters (from the depth chart) against the opponent's position groups. */
 export function unitEdges(state: GameState, us: TeamId, them: TeamId) {
   const a = unitsFor(lineup(state));
-  const b = UNITS[them] ?? generatedUnits(them);
+  const b = (state.season === 1 ? UNITS[them] : undefined) ?? generatedUnits(them, state.teamRatings[them]);
   return UNIT_MATCHUPS.map((m) => {
     const ours = a[m.ours];
     const theirs = b[m.theirs];

@@ -15,6 +15,7 @@ export interface Player {
   ovr: number;
   hometown: string;
   nil: number; // annual NIL deal
+  pot?: number; // hidden potential; derived from id and class year when missing
   source?: "portal" | "recruit";
 }
 
@@ -101,6 +102,7 @@ export function playerFromPortal(pp: PortalPlayer, amount: number): Player {
     ovr: pp.ovr,
     hometown: pp.id === ROOK_PORTAL.id ? "Austin, TX" : `via ${pp.from}`,
     nil: amount,
+    pot: pp.pot,
     source: pp.id === ROOK_PORTAL.id ? "recruit" : "portal",
   };
 }
@@ -262,8 +264,8 @@ export function generatedSkill(team: TeamId): Skill {
   };
 }
 
-export function generatedUnits(team: TeamId): Record<string, { name: string; rating: number }> {
-  const { off, def } = TEAMS[team];
+export function generatedUnits(team: TeamId, rating: { off: number; def: number } = TEAMS[team]): Record<string, { name: string; rating: number }> {
+  const { off, def } = rating;
   const s = generatedSkill(team);
   return {
     QB: { name: s.qb, rating: off + 1 },

@@ -4,6 +4,7 @@ import {
   BYE_SEEDS, FINAL_WEEK, FIRST_WEEK, INITIAL_STANDINGS, PLAYOFF_FIELD, PORTAL, ROOK_ASK, ROOK_PORTAL,
   SCHEDULE, TEAMS, USER_TEAM, type Fixture, type PortalPlayer, type TeamId,
 } from "./data";
+import { advanceRoster, ALL_TEAMS, baseRatings, driftRatings, generateSchedule, type OffseasonReport, type Ratings } from "./season";
 import { hashSeed, makeRng } from "./rng";
 import {
   INITIAL_INJURIES, POS_LABEL, ROSTER, SIDE, STARTERS, initialDepth, isAvailable, playerFromPortal, ratingLossWithout,
@@ -12,7 +13,7 @@ import {
 import { DEFAULT_PLAN, simulateGame, type GamePlan, type GameResult, type GameTimeRisk, type SimOptions, type StatLine } from "./sim";
 
 export const STORAGE_KEY = "portal-wars-v3";
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 4;
 
 // ---- Calendar ------------------------------------------------------------------
 // Weeks 11-12 are the regular season, 13-16 the playoff rounds, 17 means the season is done.
@@ -68,6 +69,7 @@ export interface Score {
 }
 
 export interface WeekRecap {
+  season?: number;
   week: number;
   game?: GameResult; // missing when the user had no game (bye or eliminated)
   others: Score[];
@@ -75,6 +77,16 @@ export interface WeekRecap {
   rankAfter: number;
   bidUpdates: { playerId: string; status: "signed" | "lost" }[];
   injuryUpdates: { playerId: string; text: string }[];
+}
+
+export interface SeasonSummary {
+  season: number;
+  wins: number;
+  losses: number;
+  rank: number;
+  seed: number | null;
+  finish: string; // "National champions", "Lost in the quarterfinals", "Missed the playoff"
+  champion: TeamId | null;
 }
 
 export interface PlayoffGame extends Score {
@@ -85,7 +97,12 @@ export interface PlayoffGame extends Score {
 export interface GameState {
   version: number;
   seed: number; // per-save randomness so each new season plays out differently
+  season: number;
   week: number;
+  schedule: Record<number, Fixture[]>;
+  teamRatings: Ratings; // every team's base ratings this season (the user's come from the depth chart)
+  history: SeasonSummary[];
+  lastOffseason: OffseasonReport | null; // shown at the start of a new season
   nilBudget: number;
   scholarships: number;
   hype: number;
@@ -117,6 +134,8 @@ export type Action =
   | { type: "depth/move"; pos: Pos; playerId: string; dir: -1 | 1 }
   | { type: "gametime/set"; playerId: string; call: "start" | "rest" }
   | { type: "sim/week" }
+  | { type: "sim/toPlayoffs" }
+  | { type: "season/next" }
   | { type: "recap/seen" }
   | { type: "reset" };
 
@@ -138,7 +157,12 @@ export function initialState(seed: number = Math.floor(Math.random() * 2 ** 31))
   return {
     version: STATE_VERSION,
     seed,
+    season: 1,
     week: FIRST_WEEK,
+    schedule: SCHEDULE,
+    teamRatings: baseRatings(),
+    history: [],
+    lastOffseason: null,
     nilBudget: 2_100_000,
     scholarships: 3,
     hype: 50,
@@ -175,7 +199,9 @@ export function standingOf(s: GameState, id: TeamId) {
   return s.standings.find((t) => t.id === id);
 }
 
+/** Season 1's transfer window. Later seasons' windows arrive with the offseason portal update. */
 export function portalBoard(s: GameState): PortalPlayer[] {
+  if (s.season > 1) return [];
   return s.rook.decision === "walked" ? [ROOK_PORTAL, ...PORTAL] : PORTAL;
 }
 
@@ -208,7 +234,7 @@ export function userSimOptions(s: GameState): Pick<SimOptions, "ratings" | "skil
     userTeam: USER_TEAM,
     plan: s.plan,
     hype: s.hype,
-    ratings: { [USER_TEAM]: teamRatings(USER_TEAM, inp) },
+    ratings: { ...s.teamRatings, [USER_TEAM]: teamRatings(USER_TEAM, inp) },
     skill: { [USER_TEAM]: skillFor(inp) },
     risks,
   };
@@ -216,13 +242,18 @@ export function userSimOptions(s: GameState): Pick<SimOptions, "ratings" | "skil
 
 /** The user's game this week, regular season or playoffs. */
 export function currentUserFixture(s: GameState): (Fixture & { neutral?: boolean }) | undefined {
-  if (s.week <= FINAL_WEEK) return SCHEDULE[s.week]?.find((f) => f.home === USER_TEAM || f.away === USER_TEAM);
+  if (s.week <= FINAL_WEEK) return s.schedule[s.week]?.find((f) => f.home === USER_TEAM || f.away === USER_TEAM);
   if (!isPlayoffs(s)) return undefined;
   return playoffFixtures(s, roundOf(s.week)).find((f) => f && (f.home === USER_TEAM || f.away === USER_TEAM)) ?? undefined;
 }
 
-export function scheduleFixture(week: number) {
-  return SCHEDULE[week]?.find((f) => f.home === USER_TEAM || f.away === USER_TEAM);
+export function scheduleFixture(s: GameState, week: number) {
+  return s.schedule[week]?.find((f) => f.home === USER_TEAM || f.away === USER_TEAM);
+}
+
+/** First regular-season week on this season's schedule (11 in Season 1, 1 afterwards). */
+export function firstWeek(s: GameState) {
+  return Math.min(...Object.keys(s.schedule).map(Number));
 }
 
 // ---- Playoff bracket -------------------------------------------------------------
@@ -291,11 +322,11 @@ export function playoffOdds(s: GameState, assume?: "win" | "loss", runs = 600): 
   for (let i = 0; i < runs; i++) {
     let table = s.standings.map((t) => ({ ...t }));
     for (let w = s.week; w <= FINAL_WEEK; w++) {
-      const results = (SCHEDULE[w] ?? []).map((f) => {
+      const results = (s.schedule[w] ?? []).map((f) => {
         const isUserNow = w === s.week && (f.home === USER_TEAM || f.away === USER_TEAM);
         let homeWins: boolean;
         if (isUserNow && assume) homeWins = (f.home === USER_TEAM) === (assume === "win");
-        else homeWins = rng() < quickWinProb(f.home, f.away, mine);
+        else homeWins = rng() < quickWinProb(s.teamRatings, f.home, f.away, mine);
         return { home: f.home, away: f.away, homeScore: homeWins ? 1 : 0, awayScore: homeWins ? 0 : 1 };
       });
       table = applyResults(table, results);
@@ -305,8 +336,8 @@ export function playoffOdds(s: GameState, assume?: "win" | "loss", runs = 600): 
   return made / runs;
 }
 
-function quickWinProb(home: TeamId, away: TeamId, mine: { off: number; def: number }) {
-  const total = (id: TeamId) => (id === USER_TEAM ? mine.off + mine.def : TEAMS[id].off + TEAMS[id].def);
+function quickWinProb(ratings: Ratings, home: TeamId, away: TeamId, mine: { off: number; def: number }) {
+  const total = (id: TeamId) => (id === USER_TEAM ? mine.off + mine.def : ratings[id].off + ratings[id].def);
   return 1 / (1 + Math.exp(-(total(home) - total(away) + 3) / 7));
 }
 
@@ -354,7 +385,7 @@ export function reducer(s: GameState, a: Action): GameState {
       return initialState();
 
     case "rook/pay": {
-      if (s.rook.decision || s.nilBudget < ROOK_ASK || s.scholarships < 1) return s;
+      if (s.season > 1 || s.rook.decision || s.nilBudget < ROOK_ASK || s.scholarships < 1) return s;
       return {
         ...s,
         nilBudget: s.nilBudget - ROOK_ASK,
@@ -367,7 +398,7 @@ export function reducer(s: GameState, a: Action): GameState {
     }
 
     case "rook/walk": {
-      if (s.rook.decision) return s;
+      if (s.season > 1 || s.rook.decision) return s;
       return {
         ...s,
         hype: s.hype - 6,
@@ -378,7 +409,8 @@ export function reducer(s: GameState, a: Action): GameState {
 
     case "press/answer": {
       if (s.press) return s;
-      const d = s.rook.decision;
+      // The Rook storyline only exists in Season 1; afterwards answers just move hype and trust.
+      const d = s.season > 1 ? "closed" : s.rook.decision;
       let { hype, mediaTrust, nilBudget, rook } = s;
       if (a.choice === "match") {
         hype += 8;
@@ -431,6 +463,15 @@ export function reducer(s: GameState, a: Action): GameState {
 
     case "sim/week":
       return simWeek(s);
+
+    case "sim/toPlayoffs": {
+      let next = s;
+      while (next.week <= FINAL_WEEK) next = simWeek(next);
+      return next;
+    }
+
+    case "season/next":
+      return seasonOver(s) ? startNextSeason(s) : s;
   }
 }
 
@@ -440,7 +481,7 @@ function simWeek(s: GameState): GameState {
   if (seasonOver(s)) return s;
   const week = s.week;
   const playoffRound = isPlayoffs(s) ? roundOf(week) : null;
-  const fixtures = playoffRound === null ? (SCHEDULE[week] ?? []) : playoffFixtures(s, playoffRound).filter((f) => f !== null);
+  const fixtures = playoffRound === null ? (s.schedule[week] ?? []) : playoffFixtures(s, playoffRound).filter((f) => f !== null);
   const rankBefore = standingOf(s, USER_TEAM)!.rank;
   const userOpts = userSimOptions(s);
 
@@ -449,7 +490,8 @@ function simWeek(s: GameState): GameState {
   const results: (Score & { slot?: number })[] = [];
   for (const f of fixtures) {
     const isUser = f.home === USER_TEAM || f.away === USER_TEAM;
-    const g = simulateGame(f.home, f.away, hashSeed("game", s.seed, week, f.home, f.away), {
+    const g = simulateGame(f.home, f.away, hashSeed("game", s.seed, s.season, week, f.home, f.away), {
+      ratings: s.teamRatings,
       ...(isUser ? userOpts : {}),
       neutral: (f as { neutral?: boolean }).neutral ?? false,
       fast: !isUser,
@@ -472,7 +514,7 @@ function simWeek(s: GameState): GameState {
     playoff = { seeds: standings.slice(0, PLAYOFF_FIELD).map((t) => t.id), games: [] };
   }
 
-  const rng = makeRng(hashSeed("week", s.seed, week, s.bids.length, game?.homeScore ?? 0));
+  const rng = makeRng(hashSeed("week", s.seed, s.season, week, s.bids.length, game?.homeScore ?? 0));
 
   // Portal bids resolve at the end of the week; signings join the depth chart by rating.
   const bidUpdates: WeekRecap["bidUpdates"] = [];
@@ -529,7 +571,7 @@ function simWeek(s: GameState): GameState {
           ? `${p.pos} ${p.name} (${desc}) is questionable — game-time call next week.`
           : `${p.pos} ${p.name} (${desc}) is out ${inj.weeks} game${inj.weeks > 1 ? "s" : ""}.`;
       injuryUpdates.push({ playerId: p.id, text });
-      headlines.push(news("INJURY", `Stallions ${POS_LABEL[p.pos].toLowerCase()} ${p.name} hurt (${desc})`, week));
+      headlines.push(news("INJURY", `Stallions ${POS_LABEL[p.pos].toLowerCase()} ${p.name} hurt (${desc})`, week, s.season));
     }
   }
 
@@ -562,6 +604,7 @@ function simWeek(s: GameState): GameState {
             : `Stallions top ${TEAMS[opp].name} ${us}–${them}${ot}${playoffRound !== null ? ` to win the ${label}` : ""}`
           : `${TEAMS[opp].name} ${playoffRound !== null ? "end Stallions' season" : "stun Stallions"} ${them}–${us}${ot}`,
         week,
+        s.season,
       ),
     );
   }
@@ -575,21 +618,22 @@ function simWeek(s: GameState): GameState {
             ? `Lone Star slides to No. ${rankAfter} after ${label}`
             : `Committee holds Lone Star at No. ${rankAfter}`,
         week,
+        s.season,
       ),
     );
   }
   if (week === FINAL_WEEK && playoff) {
     const seed = playoff.seeds.indexOf(USER_TEAM) + 1;
-    headlines.push(news("PLAYOFF", seed ? `Selection day: Lone Star is the No. ${seed} seed` : "Selection day: Lone Star left out of the 12-team field", week));
+    headlines.push(news("PLAYOFF", seed ? `Selection day: Lone Star is the No. ${seed} seed` : "Selection day: Lone Star left out of the 12-team field", week, s.season));
   }
   if (playoffRound === 3 && results[0]) {
     const r = results[0];
     const champ = r.homeScore > r.awayScore ? r.home : r.away;
-    if (champ !== USER_TEAM) headlines.push(news("PLAYOFF", `${TEAMS[champ].name} win the national championship`, week));
+    if (champ !== USER_TEAM) headlines.push(news("PLAYOFF", `${TEAMS[champ].name} win the national championship`, week, s.season));
   }
   for (const u of bidUpdates) {
     const name = findPortalPlayer(u.playerId)!.name;
-    headlines.push(news("PORTAL", u.status === "signed" ? `${name} signs with the Stallions` : `${name} picks another school; NIL returned`, week));
+    headlines.push(news("PORTAL", u.status === "signed" ? `${name} signs with the Stallions` : `${name} picks another school; NIL returned`, week, s.season));
   }
 
   const userWon = game ? (game.home === USER_TEAM ? game.homeScore > game.awayScore : game.awayScore > game.homeScore) : null;
@@ -609,17 +653,86 @@ function simWeek(s: GameState): GameState {
     seasonStats,
     hype: clamp100(s.hype + (userWon === null ? 0 : userWon ? 6 : -10)),
     press: null,
-    recaps: [...s.recaps, { week, game, others, rankBefore, rankAfter, bidUpdates, injuryUpdates }],
+    recaps: [...s.recaps, { season: s.season, week, game, others, rankBefore, rankAfter, bidUpdates, injuryUpdates }],
     unseenRecap: true,
     news: [...headlines.reverse(), ...s.news],
   };
 }
 
-function news(tag: NewsItem["tag"], headline: string, week: number): NewsItem {
-  return { id: `w${week}-${hashSeed(tag, headline).toString(36)}`, week, tag, headline, when: week > FINAL_WEEK ? "Post" : `Wk ${week}` };
+function news(tag: NewsItem["tag"], headline: string, week: number, season = 1): NewsItem {
+  const when = (season > 1 ? `S${season} ` : "") + (week > FINAL_WEEK ? "Post" : week === 0 ? "Pre" : `Wk ${week}`);
+  return { id: `s${season}w${week}-${hashSeed(tag, headline).toString(36)}`, week, tag, headline, when };
 }
 
 const clamp100 = (x: number) => Math.max(0, Math.min(100, Math.round(x)));
+
+// ---- Season to season -------------------------------------------------------------
+
+/** How the user's season ended, for the history table. */
+export function seasonSummary(s: GameState): SeasonSummary {
+  const me = standingOf(s, USER_TEAM)!;
+  const seed = seedOf(s, USER_TEAM);
+  const champ = champion(s);
+  let finish = "Missed the playoff";
+  if (champ === USER_TEAM) finish = "National champions";
+  else if (seed) {
+    const loss = s.playoff?.games.find((g) => (g.home === USER_TEAM || g.away === USER_TEAM) && (g.homeScore > g.awayScore ? g.away : g.home) === USER_TEAM);
+    finish = loss ? (loss.round === 3 ? "Lost in the title game" : `Lost in the ${PLAYOFF_ROUNDS[loss.round].toLowerCase()}`) : "Made the playoff";
+  }
+  return { season: s.season, wins: me.wins, losses: me.losses, rank: me.rank, seed, finish, champion: champ };
+}
+
+/** Offseason: archive the season, develop the roster, reshuffle the league and set a new 12-week schedule. */
+export function startNextSeason(s: GameState): GameState {
+  const summary = seasonSummary(s);
+  const season = s.season + 1;
+  const { players, depth, report } = advanceRoster(s.players, s.depth, s.seed, season);
+  const teamRatingsNext = driftRatings(s.teamRatings, s.seed, season);
+  const mine = teamRatings(USER_TEAM, { players, depth, injuries: {}, gameTime: {} });
+  const prevRank = new Map(s.standings.map((t) => [t.id, t.rank]));
+
+  // Preseason poll: team strength plus a little credit for last year's finish.
+  const power = (id: TeamId) => {
+    const r = id === USER_TEAM ? mine : teamRatingsNext[id];
+    return r.off + r.def + Math.max(0, 18 - (prevRank.get(id) ?? 25)) * 0.4;
+  };
+  const order = [...ALL_TEAMS].sort((a, b) => power(b) - power(a));
+  const standings: Standing[] = order.map((id, i) => ({ id, wins: 0, losses: 0, sos: 0.5, score: 100 - i * SPACING, rank: i + 1, prevRank: i + 1 }));
+  const myRank = standings.find((t) => t.id === USER_TEAM)!.rank;
+
+  const playoffBonus = summary.finish === "National champions" ? 300_000 : summary.seed ? 100_000 : 0;
+  const nilBudget = 2_000_000 + summary.wins * 25_000 + playoffBonus;
+
+  return {
+    ...s,
+    season,
+    week: 1,
+    schedule: generateSchedule(hashSeed("season", s.seed, season)),
+    teamRatings: teamRatingsNext,
+    history: [...s.history, summary],
+    lastOffseason: report,
+    players,
+    depth,
+    injuries: {},
+    gameTime: {},
+    seasonStats: {},
+    standings,
+    playoff: null,
+    recaps: [],
+    unseenRecap: false,
+    nilBudget,
+    scholarships: 3,
+    bids: [],
+    scouts: [],
+    press: null,
+    hype: Math.round(50 + (s.hype - 50) * 0.5),
+    news: [
+      news("RANKINGS", `Preseason poll: Lone Star opens Season ${season} at No. ${myRank}`, 0, season),
+      news("RECRUITING", `${report.graduated.length} seniors graduate; ${report.freshmen.length + report.enrolled.length} newcomers join the Stallions`, 0, season),
+      ...s.news,
+    ].slice(0, 40),
+  };
+}
 
 // ---- Selection -----------------------------------------------------------------
 
@@ -639,7 +752,11 @@ export function shortPositions(s: GameState): Pos[] {
 export function loadState(raw: string | null): GameState {
   if (!raw) return initialState();
   try {
-    const parsed = JSON.parse(raw) as GameState;
+    let parsed = JSON.parse(raw) as GameState;
+    // Version 3 saves predate multiple seasons: they are Season 1 on the fixed schedule.
+    if (parsed?.version === 3) {
+      parsed = { ...parsed, version: STATE_VERSION, season: 1, schedule: SCHEDULE, teamRatings: baseRatings(), history: [], lastOffseason: null };
+    }
     if (parsed?.version !== STATE_VERSION || !Array.isArray(parsed.standings) || !parsed.depth || typeof parsed.seed !== "number") return initialState();
     return parsed;
   } catch {

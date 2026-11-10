@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { SCHEDULE, TEAMS, USER_TEAM, type TeamId } from "@/lib/game/data";
+import { TEAMS, USER_TEAM, type TeamId } from "@/lib/game/data";
 import { winProbability } from "@/lib/game/sim";
 import {
   champion, currentUserFixture, isPlayoffs, playoffFixtures, PLAYOFF_ROUNDS, roundOf, seasonOver, seedOf, standingOf, userEliminated, weekLabel,
@@ -13,6 +13,7 @@ import { useGame } from "../GameProvider";
 import { MatchupHero, useMatchup } from "../Matchup";
 import { ButtonLink, cx, PageHeader, Panel, Stat, Tag, TeamBadge } from "../ui";
 import { UnitCard, unitEdges } from "../UnitMatchups";
+import { HistoryTable } from "./SimScreen";
 
 export function Dashboard() {
   const { state } = useGame();
@@ -23,12 +24,13 @@ export function Dashboard() {
     <>
       <PageHeader
         title={seasonOver(state) ? "Season wrap" : playoffs ? "Playoff preview" : "Weekly preview"}
-        sub={`Season 1 · ${weekLabel(state.week)}${hasGame ? " · The week ahead" : ""}`}
+        sub={`Season ${state.season} · ${weekLabel(state.week)}${hasGame ? " · The week ahead" : ""}`}
         right={!seasonOver(state) && <ButtonLink href="/sim">{hasGame ? "Game plan & sim" : "Bracket & sim"}</ButtonLink>}
       />
 
       {state.unseenRecap && <LastResultBanner state={state} />}
       <Alerts state={state} />
+      {state.season > 1 && state.recaps.length === 0 && <NewSeason state={state} />}
 
       {hasGame ? <Preview state={state} /> : <SeasonStatus state={state} />}
     </>
@@ -39,7 +41,7 @@ function Alerts({ state }: { state: GameState }) {
   const questionable = state.players.filter((p) => state.injuries[p.id]?.status === "questionable");
   return (
     <>
-      {state.rook.decision === null && (
+      {state.rook.decision === null && state.season === 1 && (
         <Link href="/recruiting" className="mb-3 flex items-center gap-3 rounded-lg border border-accent/40 bg-accent/10 px-4 py-3 transition-colors hover:bg-accent/15">
           <Tag>Urgent</Tag>
           <p className="flex-1 text-sm">
@@ -90,12 +92,12 @@ function Preview({ state }: { state: GameState }) {
   const m = useMatchup(state);
   const playoffs = isPlayoffs(state);
   const others = useMemo(() => {
-    const list = playoffs ? playoffFixtures(state, roundOf(state.week)).filter((f) => f !== null) : (SCHEDULE[state.week] ?? []);
+    const list = playoffs ? playoffFixtures(state, roundOf(state.week)).filter((f) => f !== null) : (state.schedule[state.week] ?? []);
     return list
       .filter((f) => f.home !== USER_TEAM && f.away !== USER_TEAM)
-      .map((f) => ({ home: f.home, away: f.away, kickoff: f.kickoff, p: winProbability(f.home, f.away, f.home, { neutral: playoffs && roundOf(state.week) > 0 }, 250) }));
+      .map((f) => ({ home: f.home, away: f.away, kickoff: f.kickoff, p: winProbability(f.home, f.away, f.home, { neutral: playoffs && roundOf(state.week) > 0, ratings: state.teamRatings }, 250) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.week, state.playoff?.games.length]);
+  }, [state.season, state.week, state.playoff?.games.length]);
   if (!m) return null;
   const me = standingOf(state, USER_TEAM)!;
   const edges = unitEdges(state, m.us, m.them).slice(0, 6);
@@ -221,6 +223,37 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="flex justify-between border-b border-line/60 pb-1.5">
       <span className="text-muted">{label}</span>
       <span className="font-display tabular">{value}</span>
+    </div>
+  );
+}
+
+/** Start of a new season: what changed over the offseason, and the program's history. */
+function NewSeason({ state }: { state: GameState }) {
+  const r = state.lastOffseason;
+  if (!r) return null;
+  const me = standingOf(state, USER_TEAM)!;
+  const gains = [...r.progressed].sort((a, b) => b.to - b.from - (a.to - a.from)).slice(0, 4);
+  return (
+    <div className="mb-5 grid gap-5 lg:grid-cols-12">
+      <Panel kicker="Offseason recap" title={`Season ${state.season} is here`} className="lg:col-span-8">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Stat label="Preseason rank" value={`#${me.rank}`} tone="gold" />
+          <Stat label="Graduated" value={r.graduated.length} />
+          <Stat label="Newcomers" value={r.freshmen.length + r.enrolled.length} tone="good" />
+          <Stat label="NIL budget" value={money(state.nilBudget)} />
+        </div>
+        {gains.length > 0 && (
+          <p className="mt-3 text-sm text-muted">
+            Biggest jumps: {gains.map((g) => `${g.player.name} (${g.from}→${g.to})`).join(", ")}.{" "}
+            <Link href="/roster" className="text-accent-hi hover:underline">
+              Set the depth chart
+            </Link>
+          </p>
+        )}
+      </Panel>
+      <Panel kicker="Program" title="History" className="lg:col-span-4">
+        <HistoryTable rows={state.history} />
+      </Panel>
     </div>
   );
 }

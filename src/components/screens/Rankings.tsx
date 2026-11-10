@@ -12,7 +12,7 @@ export function Rankings() {
   const me = standingOf(state, USER_TEAM)!;
   const over = regularSeasonOver(state);
   const odds = useMemo(() => playoffOdds(state), [state]);
-  const next = scheduleFixture(state.week);
+  const next = scheduleFixture(state, state.week);
   const opp = next ? (next.home === USER_TEAM ? next.away : next.home) : null;
 
   return (

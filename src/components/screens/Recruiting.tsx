@@ -18,6 +18,39 @@ export function Recruiting() {
   const visits = rook.decision === "paid" ? [{ date: "Nov 6", type: "Offer", staff: "HC", result: "$1.1M filed" }, ...VISITS] : VISITS;
   const canPay = state.nilBudget >= ROOK_ASK && state.scholarships > 0;
 
+  if (state.season > 1) {
+    const signees = state.players.filter((p) => p.source === "recruit" && p.yr === "Fr");
+    return (
+      <>
+        <PageHeader title="Recruiting" sub={`Season ${state.season} · Class of next year`} />
+        <Panel kicker="Big board" title="Recruiting opens in the next update">
+          <p className="max-w-2xl leading-6 text-muted">
+            Building your own recruiting class — a big board of prospects, NIL offers, visits and commitments — is the next round of
+            work. Until then, each offseason auto-signs freshmen to replace graduating seniors.
+          </p>
+          {signees.length > 0 && (
+            <>
+              <p className="font-display mt-5 mb-2 text-xs tracking-widest text-muted">This year&apos;s freshmen</p>
+              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {signees.map((p) => (
+                  <li key={p.id} className="flex items-center gap-3 rounded-md border border-line bg-bg-2/70 px-3 py-2">
+                    <span className="font-display tabular w-8 text-lg font-bold">{p.ovr}</span>
+                    <span className="flex-1 text-sm">
+                      <span className="font-semibold">{p.name}</span>
+                      <span className="block text-xs text-muted">
+                        {p.pos} · {p.hometown}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Panel>
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader title="Recruiting" sub="Season 1 · Class of next year · Big board" />

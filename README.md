@@ -1,8 +1,9 @@
 # Portal Wars
 
-A college football GM game prototype. You run the Lone Star Stallions through the end of Season 1: answer a five-star
-recruit's $1.1M ultimatum, work the transfer portal, set your depth chart and game plan, sim your games, and chase a
-title through the 12-team playoff. All teams and players are fictional.
+A college football GM game prototype. You run the Lone Star Stallions as a multi-season dynasty. Season 1 opens late
+in the year with a five-star recruit's $1.1M ultimatum; after that, every season is a full 12-week schedule and a
+12-team playoff, with an offseason in between where seniors graduate and players develop. Set your depth chart and
+game plan, sim your games, and build a history. All teams and players are fictional.
 
 Built with Next.js 16, TypeScript and Tailwind CSS. Progress is saved in the browser.
 
@@ -38,9 +39,14 @@ start, and their OVRs (weighted by position) move the team's offense and defense
 unless you start them, and a started questionable player can get hurt again mid-game. Transfers you sign join the
 depth chart; Jalen Rook, a high-school signee, enrolls next season.
 
-`src/lib/game/state.ts` holds the season: decisions, bids, injuries, season stats, the weekly sim of every game,
-committee re-ranking, playoff odds, and the bracket (weeks 11–12 are the regular season, then four playoff rounds).
-All three are plain TypeScript with no React, and have tests in `src/lib/game/__tests__`.
+`src/lib/game/season.ts` handles the jump between seasons: a generated 12-week schedule for all 20 teams, opponent
+ratings that drift each year, and the offseason (seniors graduate, everyone else moves up a class and grows toward a
+hidden potential, signees enroll, and freshmen fill open spots until recruiting arrives).
+
+`src/lib/game/state.ts` holds the save: decisions, bids, injuries, season stats, the weekly sim of every game,
+committee re-ranking, playoff odds, the bracket, and program history. Season 1 covers weeks 11–12; later seasons
+weeks 1–12; then four playoff rounds. All four are plain TypeScript with no React, and have tests in
+`src/lib/game/__tests__`.
 
 ## Scripts
 

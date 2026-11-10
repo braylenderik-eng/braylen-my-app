@@ -9,7 +9,9 @@ export function News() {
   const { state, dispatch } = useGame();
   const d = state.rook.decision;
   const question =
-    d === null
+    state.season > 1
+      ? `Coach, Season ${state.season}. The fans expect more after last year. What's the message?`
+      : d === null
       ? "Coach, Rook wants $1.1M or he walks Friday. Bayou is in his ear. Are you paying him, or pivoting to the portal?"
       : d === "walked"
         ? "Coach, Rook is headed to the portal. Was that the plan, or did Bayou beat you?"
@@ -18,20 +20,20 @@ export function News() {
   const answers: { id: PressChoice; quote: string; effect: string }[] = [
     {
       id: "match",
-      quote: "We're matching. Stallions finish what we start.",
-      effect: d === null ? "Rook interest up · −$50K budget · fan reaction +" : "Hype up · fans buy in",
+      quote: state.season > 1 ? "We're here to win it all. Nothing less." : "We're matching. Stallions finish what we start.",
+      effect: d === null && state.season === 1 ? "Rook interest up · −$50K budget · fan reaction +" : "Hype up · fans buy in",
     },
     {
       id: "board",
-      quote: "We trust our board. Portal opens Friday.",
-      effect: d === null ? "Rook interest down · save budget · locker room calm" : "Budget stays put · locker room calm",
+      quote: state.season > 1 ? "We trust the process and our young guys." : "We trust our board. Portal opens Friday.",
+      effect: d === null && state.season === 1 ? "Rook interest down · save budget · locker room calm" : "Budget stays put · locker room calm",
     },
-    { id: "nocomment", quote: "No comment on recruiting dollars.", effect: "Neutral · media trust down slightly" },
+    { id: "nocomment", quote: state.season > 1 ? "We'll let the games do the talking." : "No comment on recruiting dollars.", effect: "Neutral · media trust down slightly" },
   ];
 
   return (
     <>
-      <PageHeader title="News & press" sub="Stallions desk · the wire" />
+      <PageHeader title="News & press" sub={`Season ${state.season} · Stallions desk · the wire`} />
       <div className="grid gap-5 lg:grid-cols-12">
         <Panel kicker="Latest" title="Headlines" className="lg:col-span-7" bodyClassName="p-0">
           <ul className="divide-y divide-line/60">
@@ -52,7 +54,7 @@ export function News() {
             <span className="font-display mr-1 text-xs tracking-widest text-accent-hi">Reporter</span> {question}
           </p>
           <div className="mt-4 grid grid-cols-4 gap-2">
-            <Stat label="Rook int" value={`${state.rook.interest}%`} />
+            {state.season === 1 ? <Stat label="Rook int" value={`${state.rook.interest}%`} /> : <Stat label="Season" value={state.season} />}
             <Stat label="Hype" value={state.hype} />
             <Stat label="Trust" value={state.mediaTrust} />
             <Stat label="NIL" value={money(state.nilBudget)} />

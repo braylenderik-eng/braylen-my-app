@@ -128,7 +128,7 @@ export function Portal() {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-muted">
-                    No one on your shortlist matches.
+                    {state.season > 1 ? "The transfer window is closed. The offseason portal window arrives in the next update." : "No one on your shortlist matches."}
                   </td>
                 </tr>
               )}

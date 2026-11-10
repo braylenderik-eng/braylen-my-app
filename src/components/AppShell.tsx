@@ -35,7 +35,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {NAV.map((n) => {
               const active = n.href === "/" ? path === "/" : path.startsWith(n.href);
               const hurt = Object.values(state.injuries).some((i) => i.status === "questionable");
-              const dot = (n.href === "/recruiting" && pendingRook) || (n.href === "/sim" && state.unseenRecap) || (n.href === "/roster" && hurt);
+              const dot = (n.href === "/recruiting" && pendingRook && state.season === 1) || (n.href === "/sim" && state.unseenRecap) || (n.href === "/roster" && hurt);
               return (
                 <Link
                   key={n.href}
@@ -54,7 +54,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </nav>
           <div className="hidden shrink-0 items-center gap-3 md:flex">
             <div className="text-right leading-tight">
-              <p className="font-display text-sm font-semibold">Season 1</p>
+              <p className="font-display text-sm font-semibold">Season {state.season}</p>
               <p className="font-display text-[10px] tracking-widest text-muted">{weekLabel(state.week)}</p>
             </div>
             <span className="font-display tabular rounded-md bg-accent/15 px-2.5 py-1.5 text-sm font-semibold text-accent-hi ring-1 ring-accent/30">
@@ -66,7 +66,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="border-b border-line bg-bg-2/60 md:hidden">
         <div className="font-display mx-auto flex max-w-7xl items-center justify-between px-4 py-2 text-xs tracking-widest text-muted">
-          <span>Season 1 · {weekLabel(state.week)}</span>
+          <span>Season {state.season} · {weekLabel(state.week)}</span>
           <span className="text-accent-hi">NIL {money(state.nilBudget)}</span>
         </div>
       </div>
@@ -87,7 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </footer>
 
       <Dialog open={confirmReset} title="Start the season over?" onClose={() => setConfirmReset(false)}>
-        <p className="text-sm text-muted">This erases your decisions, bids, depth chart and results and goes back to Week 11.</p>
+        <p className="text-sm text-muted">This erases every season, your decisions, depth chart and results, and starts over at Season 1, Week 11.</p>
         <div className="mt-5 grid grid-cols-2 gap-3">
           <Button variant="outline" onClick={() => setConfirmReset(false)}>
             Cancel

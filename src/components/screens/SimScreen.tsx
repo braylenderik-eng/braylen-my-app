@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { FINAL_WEEK, FIRST_WEEK, SCOUTING, TEAMS, USER_TEAM, type TeamId } from "@/lib/game/data";
+import { FINAL_WEEK, SCOUTING, TEAMS, USER_TEAM, type TeamId } from "@/lib/game/data";
 import type { DefensePlan, Drive, GameResult, OffensePlan, StatLine } from "@/lib/game/sim";
 import {
-  champion, currentUserFixture, findPortalPlayer, isPlayoffs, PLAYOFF_ROUNDS, PLAYOFF_START, playoffField, playoffFixtures,
-  roundOf, scheduleFixture, seasonOver, seedOf, userEliminated, weekLabel, type GameState, type Score, type WeekRecap,
+  champion, currentUserFixture, findPortalPlayer, firstWeek, isPlayoffs, PLAYOFF_ROUNDS, PLAYOFF_START, playoffField, playoffFixtures,
+  roundOf, scheduleFixture, seasonOver, seedOf, startNextSeason, standingOf, userEliminated, weekLabel, type GameState, type Score,
+  type WeekRecap,
 } from "@/lib/game/state";
+import { money } from "@/lib/format";
 import { pct } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { MatchupHero, useMatchup, type MatchupInfo } from "../Matchup";
@@ -42,13 +44,13 @@ export function SimScreen() {
 
 function WeekStrip({ state, selected, onSelect }: { state: GameState; selected: number | null; onSelect: (w: number | null) => void }) {
   const chips = [];
-  for (let w = FIRST_WEEK; w <= TITLE_WEEK; w++) {
+  for (let w = firstWeek(state); w <= TITLE_WEEK; w++) {
     const recap = state.recaps.find((r) => r.week === w);
     const isCurrent = w === state.week;
     let opp: TeamId | null = null;
     let away = false;
     if (w <= FINAL_WEEK) {
-      const f = scheduleFixture(w)!;
+      const f = scheduleFixture(state, w)!;
       opp = f.home === USER_TEAM ? f.away : f.home;
       away = f.home !== USER_TEAM;
     } else if (recap?.game) {
@@ -123,10 +125,11 @@ const DEFENSE: { id: DefensePlan; name: string; tag: string }[] = [
 ];
 
 /** Hand-written scouting where we have it; a generated report from team ratings otherwise. */
-function scoutingFor(id: TeamId) {
-  const known = SCOUTING[id];
+function scoutingFor(state: GameState, id: TeamId) {
+  // Hand-written reports describe Season 1; after that, rosters have turned over.
+  const known = state.season === 1 ? SCOUTING[id] : undefined;
   if (known) return known;
-  const t = TEAMS[id];
+  const t = state.teamRatings[id];
   const offFirst = t.off >= t.def;
   return {
     scheme: offFirst ? "Spread · up-tempo" : "Multiple · defense first",
@@ -145,7 +148,7 @@ function GamePlan({ state }: { state: GameState }) {
   const m = useMatchup(state);
   const [simming, setSimming] = useState(false);
   if (!m) return null;
-  const scout = scoutingFor(m.them);
+  const scout = scoutingFor(state, m.them);
   const edges = unitEdges(state, m.us, m.them);
   const attack = edges.filter((e) => e.side === "attack");
   const stop = edges.filter((e) => e.side === "stop");
@@ -163,7 +166,7 @@ function GamePlan({ state }: { state: GameState }) {
     <div className="pb-28">
       <PageHeader
         title="Game plan"
-        sub={`Season 1 · ${weekLabel(state.week)} · ${m.neutral ? "Neutral site" : m.fixture.home === USER_TEAM ? "Home game" : "Road game"}`}
+        sub={`Season ${state.season} · ${weekLabel(state.week)} · ${m.neutral ? "Neutral site" : m.fixture.home === USER_TEAM ? "Home game" : "Road game"}`}
       />
       <SelectionBanner state={state} />
       <MatchupHero state={state} m={m} />
@@ -223,7 +226,23 @@ function GamePlan({ state }: { state: GameState }) {
         to move them.
       </p>
 
-      <SimBar m={m} simming={simming} onSim={sim} />
+      <SimBar
+        m={m}
+        simming={simming}
+        onSim={sim}
+        onSimToPlayoffs={
+          isPlayoffs(state) || state.week >= FINAL_WEEK
+            ? undefined
+            : () => {
+                setSimming(true);
+                setTimeout(() => {
+                  dispatch({ type: "sim/toPlayoffs" });
+                  setSimming(false);
+                  window.scrollTo({ top: 0 });
+                }, 900);
+              }
+        }
+      />
     </div>
   );
 }
@@ -328,7 +347,7 @@ function Choice({ active, onClick, title, blurb }: { active: boolean; onClick: (
   );
 }
 
-function SimBar({ m, simming, onSim }: { m: MatchupInfo; simming: boolean; onSim: () => void }) {
+function SimBar({ m, simming, onSim, onSimToPlayoffs }: { m: MatchupInfo; simming: boolean; onSim: () => void; onSimToPlayoffs?: () => void }) {
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg/95 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3">
@@ -342,6 +361,11 @@ function SimBar({ m, simming, onSim }: { m: MatchupInfo; simming: boolean; onSim
             {m.odds ? `Playoff odds ${pct(m.odds.win)} with a win, ${pct(m.odds.loss)} with a loss` : "Win or go home"}
           </p>
         </div>
+        {onSimToPlayoffs && (
+          <Button variant="outline" onClick={onSimToPlayoffs} disabled={simming} className="hidden px-4 py-3 sm:inline-flex">
+            Sim to playoffs
+          </Button>
+        )}
         <Button onClick={onSim} disabled={simming} className="px-6 py-3 text-base sm:px-10">
           {simming ? "Simulating…" : "Sim game"}
         </Button>
@@ -389,7 +413,7 @@ function PlayoffWatch({ state }: { state: GameState }) {
     <div>
       <PageHeader
         title={PLAYOFF_ROUNDS[round]}
-        sub="Season 1 · 12-team playoff"
+        sub={`Season ${state.season} · 12-team playoff`}
         right={
           <Button onClick={sim} disabled={simming}>
             {simming ? "Simulating…" : `Sim ${PLAYOFF_ROUNDS[round].toLowerCase()}`}
@@ -462,7 +486,7 @@ function SeasonComplete({ state }: { state: GameState }) {
   const won = champ === USER_TEAM;
   return (
     <div>
-      <PageHeader title={won ? "National champions" : "Season complete"} sub="Season 1 · Final" />
+      <PageHeader title={won ? "National champions" : "Season complete"} sub={`Season ${state.season} · Final`} />
       {champ && (
         <div
           className={cx(
@@ -475,13 +499,95 @@ function SeasonComplete({ state }: { state: GameState }) {
             <p className="font-display text-xs tracking-[0.2em] text-gold">National champion</p>
             <p className="font-display text-3xl leading-tight font-bold sm:text-5xl">{TEAMS[champ].name}</p>
             <p className="mt-1 text-muted">
-              {won ? "The Stallions finish what they started. Reset the save from the footer to run it back." : "Reset the save from the footer to take another shot."}
+              {won ? "The Stallions finish what they started. Now go do it again." : "The offseason starts now."}
             </p>
           </div>
         </div>
       )}
-      <Bracket state={state} />
+      <Offseason state={state} />
+      <div className="mt-5">
+        <Bracket state={state} />
+      </div>
     </div>
+  );
+}
+
+function Offseason({ state }: { state: GameState }) {
+  const { dispatch } = useGame();
+  const next = startNextSeason(state); // pure preview of exactly what "Begin" will do
+  const r = next.lastOffseason!;
+  const myRank = standingOf(next, USER_TEAM)!.rank;
+  const gains = [...r.progressed].sort((a, b) => b.to - b.from - (a.to - a.from)).slice(0, 6);
+  return (
+    <div className="grid gap-5 lg:grid-cols-12">
+      <Panel kicker="Offseason" title={`Building Season ${next.season}`} className="lg:col-span-8">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Stat label="Graduating" value={r.graduated.length} />
+          <Stat label="Newcomers" value={r.freshmen.length + r.enrolled.length} tone="good" />
+          <Stat label="Next NIL budget" value={money(next.nilBudget)} tone="gold" />
+          <Stat label="Preseason rank" value={`#${myRank}`} />
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="font-display mb-1.5 text-xs tracking-widest text-muted">Biggest jumps</p>
+            <ul className="space-y-1 text-sm">
+              {gains.map((g) => (
+                <li key={g.player.id} className="flex justify-between">
+                  <span>
+                    {g.player.pos} {g.player.name}
+                  </span>
+                  <span className="font-display tabular text-good">
+                    {g.from} → {g.to}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <p className="font-display mb-1.5 text-xs tracking-widest text-muted">Graduating</p>
+            <p className="text-sm leading-6 text-muted">{r.graduated.map((p) => `${p.pos} ${p.name}`).join(" · ") || "Nobody"}</p>
+            {r.enrolled.length > 0 && (
+              <>
+                <p className="font-display mt-3 mb-1.5 text-xs tracking-widest text-muted">Signees enrolling</p>
+                <p className="text-sm">{r.enrolled.map((p) => `${p.pos} ${p.name} (${p.ovr})`).join(" · ")}</p>
+              </>
+            )}
+          </div>
+        </div>
+        <p className="mt-4 text-xs text-muted">
+          {r.freshmen.length} freshmen fill the open spots for now; recruiting your own class and the offseason portal window come in the next update.
+        </p>
+        <Button className="mt-4 w-full sm:w-auto" onClick={() => dispatch({ type: "season/next" })}>
+          Begin Season {next.season}
+        </Button>
+      </Panel>
+      <Panel kicker="Program" title="History" className="lg:col-span-4">
+        <HistoryTable rows={next.history} />
+      </Panel>
+    </div>
+  );
+}
+
+export function HistoryTable({ rows }: { rows: GameState["history"] }) {
+  if (!rows.length) return <p className="text-sm text-muted">No completed seasons yet.</p>;
+  return (
+    <ul className="space-y-2">
+      {[...rows].reverse().map((h) => (
+        <li key={h.season} className="rounded-md border border-line bg-bg-2/70 px-3 py-2">
+          <div className="flex justify-between">
+            <span className="font-display text-sm tracking-wider">Season {h.season}</span>
+            <span className="font-display tabular text-sm">
+              {h.wins}–{h.losses} · #{h.rank}
+            </span>
+          </div>
+          <p className={cx("text-sm", h.finish === "National champions" ? "font-semibold text-gold" : "text-muted")}>
+            {h.finish}
+            {h.seed ? ` · No. ${h.seed} seed` : ""}
+          </p>
+          {h.champion && h.champion !== USER_TEAM && <p className="text-xs text-dim">Champion: {TEAMS[h.champion].name}</p>}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -508,7 +614,7 @@ function Recap({ recap, fresh, onBack }: { recap: WeekRecap; fresh: boolean; onB
     <div>
       <PageHeader
         title={title}
-        sub={`Season 1 · ${weekLabel(recap.week)} · Final${g?.overtime ? " / OT" : ""}`}
+        sub={`Season ${state.season} · ${weekLabel(recap.week)} · Final${g?.overtime ? " / OT" : ""}`}
         right={<Button onClick={finish}>{fresh ? "Continue" : "Back"}</Button>}
       />
 
