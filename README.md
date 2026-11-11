@@ -41,6 +41,50 @@ What your choices change:
   - Others start a little cooler.
   - The board tags them "Scheme fit".
 
+### Coaching career
+
+New dynasties track your coach's career.
+
+- **Job security** (0–100, starts at 60) moves after each season:
+
+  | Result | Change |
+  | --- | --- |
+  | Exceeded the win target | +20 |
+  | Met it | +10 |
+  | Fell short | −15 |
+  | Hot seat | −35 |
+  | Playoff trip | +5 |
+  | National title | +30 |
+
+  At zero you're fired. Two hot-seat seasons in a row will do it.
+- **Job offers.** Exceeding expectations (or winning it all) brings two offers from bigger programs; meeting expectations
+  and making the playoff can bring one. Take a job in the offseason and you inherit that program's roster, budget, win
+  target and January transfer window; offers lapse when the new season starts.
+- **Fired.** A smaller program may offer you a way back in; until you take it (or walk away) the next season can't start.
+  If nobody calls, your career is over.
+- **`/coach`** is your résumé: career record, every stop, and every season against expectations.
+
+### Rivalries and conferences
+
+- **Rivalries.** Every dynasty draws its own rivalries, almost all within a conference, each with a trophy, a series
+  record and a holder (the quick start keeps Stallions–Rangers). Rivalry week is Week 12: everyone plays their rival.
+  - The underdog in a rivalry game plays a little above itself (+2 to both ratings).
+  - A rivalry win raises your hype and swings recruits your way, most of all in your home region, right before Early
+    Signing Day. A loss does the opposite.
+- **Conference identities.** Each conference has a style and a home recruiting region:
+
+  | Conference | Style | Region |
+  | --- | --- | --- |
+  | Delta League | Defense first | LA, MS, AL |
+  | Redrock Circuit | Air it out | AZ, NM, NV, UT, CO, CA |
+  | Atlantic Circuit | Pro style | VA, NC, MD, KY, PA, OH |
+  | Mesa League | Ground game | TX, OK, AR |
+  | Sun Coast Conference | Speed in space | FL, GA, SC |
+  | Plains Athletic | Ball control | KS, NE, SD, ND, IA |
+
+  Over the seasons, teams' ratings drift toward their conference's style. Prospects from your conference's region start
+  keener on you and are tagged "Home region" on the board. The Dashboard shows your rivalry and the conference race.
+
 ### The calendar follows real college football
 
 | When (in game) | Real date | What happens |
@@ -81,6 +125,7 @@ Then open http://localhost:3000.
 | ------------- | ------------------------------------------------------------------------------- |
 | `/`           | Weekly preview: game of the week, your program and expectations, playoff odds   |
 | `/new`        | New dynasty setup: coach, program, schemes                                      |
+| `/coach`      | Your coach's résumé and job security (new dynasties)                            |
 | `/sim`        | Game plan, **Play live** / **Quick sim**, recaps, playoff bracket, offseason     |
 | `/roster`     | Depth chart, injuries and player cards                                          |
 | `/recruiting` | In-season recruiting board for next year's class                                |
@@ -110,7 +155,8 @@ visits while rival schools push back; only prospects with an NIL/revenue-share o
 Day each picks you or his top rival depending on who leads. `src/lib/game/offseason.ts` runs the January transfer
 window: backups who want to transfer, and a pool of transfers with bids that resolve when the window closes.
 
-`src/lib/game/program.ts` holds coaching styles, scheme fit, program tiers and expectations.
+`src/lib/game/career.ts` handles job security, firing and offers; `src/lib/game/league.ts` conference identities and
+rivalries. `src/lib/game/program.ts` holds coaching styles, scheme fit, program tiers and expectations.
 `src/lib/game/events.ts` defines the in-season scenarios: when each can come up, its choices, and their effects.
 
 `src/lib/game/state.ts` holds the save: decisions, bids, injuries, season stats, the weekly sim of every game,

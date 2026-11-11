@@ -6,6 +6,7 @@
 
 import { TEAMS, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
+import { inRegion } from "./league";
 import { POS_ORDER, STARTERS, type Player, type Pos } from "./roster";
 import { ALL_TEAMS, freeNumber, makePerson } from "./season";
 
@@ -25,13 +26,14 @@ export interface Prospect {
   ask: number;
   hometown: string;
   rival: TeamId; // the school recruiting him hardest
-  you: number; // interest in the Stallions, 0-100
+  you: number; // interest in your program, 0-100
   them: number; // interest in the rival
   visited: boolean;
   offered: boolean;
   pitchesThisWeek: number;
   status: "open" | "signed" | "lost";
   fit?: boolean; // fits your offensive or defensive scheme
+  local?: boolean; // from your conference's home region
 }
 
 export interface RecruitingState {
@@ -90,6 +92,7 @@ export function createBoard(
     const who = makePerson(["recruit", seed, classSeason, i]);
     const r = who.rng;
     const pos = weightedPos(r, weights);
+    const local = inRegion(team, who.hometown);
     return {
       id: `hs-${classSeason}-${i}`,
       name: who.name,
@@ -101,13 +104,14 @@ export function createBoard(
       hometown: who.hometown,
       rival: pick(r, others),
       // Prospects who fit your schemes lean your way; others take a little more convincing.
-      you: clamp(Math.round(48 - stars * 6 + prestige * 25 + head + (r() - 0.5) * 16 + (fit.length ? (fit.includes(pos) ? 8 : -3) : 0))),
+      you: clamp(Math.round(48 - stars * 6 + prestige * 25 + head + (r() - 0.5) * 16 + (fit.length ? (fit.includes(pos) ? 8 : -3) : 0) + (local ? 6 : 0))),
       them: clamp(Math.round(24 + stars * 5 + head + (r() - 0.5) * 16)),
       visited: false,
       offered: false,
       pitchesThisWeek: 0,
       status: "open" as const,
       fit: fit.includes(pos),
+      local,
     };
   });
   const pointsPerWeek = Math.max(4, Math.round(36 / weeks));
@@ -191,7 +195,7 @@ export function signingDay(players: Player[], rec: RecruitingState, nil: number,
       const pl: Player = { id: p.id, name: p.name, num: freeNumber(next, rng), pos: p.pos, yr: "HS", ovr: p.ovr, pot: p.pot, hometown: p.hometown, nil: p.ask, source: "recruit" };
       next = [...next, pl];
       signees.push(pl);
-      log.push(`${"★".repeat(p.stars)} ${p.pos} ${p.name} signed with the Stallions.`);
+      log.push(`${"★".repeat(p.stars)} ${p.pos} ${p.name} signed with you.`);
       return { ...p, status: "signed" as const };
     }
     nil += p.ask;

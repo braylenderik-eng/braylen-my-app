@@ -10,6 +10,8 @@ import * as Rec from "./recruiting";
 import * as Ev from "./events";
 import { DEFENSE_STYLES, expectationsVerdict, OFFENSE_STYLES, programProfile, schemeEdge, schemeFit, type CoachProfile, type ProgramProfile } from "./program";
 import { hashSeed, makeRng } from "./rng";
+import * as L from "./league";
+import * as Car from "./career";
 import {
   INITIAL_INJURIES, POS_LABEL, ROSTER, rosterFor, SIDE, STARTERS, initialDepth, isAvailable, ratingLossWithout,
   skillFor, starters, teamRatings, type Injury, type LineupInput, type Player, type Pos,
@@ -17,7 +19,7 @@ import {
 import { DEFAULT_PLAN, simulateGame, type GamePlan, type GameResult, type GameTimeRisk, type SimOptions, type StatLine } from "./sim";
 
 export const STORAGE_KEY = "portal-wars-v3";
-export const STATE_VERSION = 7;
+export const STATE_VERSION = 8;
 
 // ---- Calendar and playoff format ------------------------------------------------
 // Season N is the (2025 + N) college football season. Season 1 (2026) uses the 12-team playoff;
@@ -157,6 +159,7 @@ export interface SeasonSummary {
   seed: number | null;
   finish: string; // "National champions", "Lost in the quarterfinals", "Missed the playoff"
   champion: TeamId | null;
+  team?: TeamId; // the program you coached that season
   target?: number; // regular-season win target
   expectation?: string; // "Met expectations", "Hot seat", ...
 }
@@ -172,6 +175,8 @@ export interface GameState {
   team: TeamId; // the program you run
   coach: CoachProfile | null; // null for the classic Lone Star start
   program: ProgramProfile;
+  career: Car.CareerState | null; // job security and offers (null for the classic start)
+  rivalries: L.Rivalry[];
   season: number;
   week: number;
   schedule: Record<number, Fixture[]>;
@@ -205,6 +210,8 @@ export interface GameState {
 export type Action =
   | { type: "scenario/choose"; id: string; option: string }
   | { type: "dynasty/create"; coach: CoachProfile; team: TeamId; seed?: number }
+  | { type: "career/accept"; team: TeamId }
+  | { type: "career/decline" }
   | { type: "press/answer"; choice: PressChoice }
   | { type: "portal/scout"; playerId: string }
   | { type: "plan/set"; plan: Partial<GamePlan> }
@@ -259,6 +266,8 @@ export function initialState(seed: number = Math.floor(Math.random() * 2 ** 31))
     team: USER_TEAM,
     coach: null,
     program: programProfile(USER_TEAM),
+    career: null,
+    rivalries: L.makeRivalries(seed, [[USER_TEAM, "rangers"]]),
     season: 1,
     week: FIRST_WEEK,
     schedule: SCHEDULE,
@@ -322,13 +331,16 @@ export function createDynasty(coach: CoachProfile, team: TeamId, seed: number = 
   const standings = preseasonStandings(team, mine, teamRatingsAll, new Map(INITIAL_STANDINGS.map((t, i) => [t.id, i + 1])));
   const myRank = standings.find((t) => t.id === team)!.rank;
   const name = TEAMS[team].name;
+  const rivalries = L.makeRivalries(seed);
   const s: GameState = {
     ...initialState(seed),
     team,
     coach,
     program,
+    career: Car.newCareer(team, 1),
+    rivalries,
     week: 1,
-    schedule: generateSchedule(hashSeed("season", seed, 1)),
+    schedule: generateSchedule(hashSeed("season", seed, 1), rivalries),
     teamRatings: teamRatingsAll,
     players,
     depth,
@@ -418,10 +430,18 @@ export function userSimOptions(s: GameState): Pick<SimOptions, "ratings" | "skil
     userTeam: s.team,
     plan: s.plan,
     hype: s.hype,
-    ratings: { ...s.teamRatings, [s.team]: withEdge(teamRatings(s.team, inp), schemeEdge(s.coach, s.plan)) },
+    ratings: rivalryRatings(s, { ...s.teamRatings, [s.team]: withEdge(teamRatings(s.team, inp), schemeEdge(s.coach, s.plan)) }, currentUserFixture(s)),
     skill: { [s.team]: skillFor(inp) },
     risks,
   };
+}
+
+/** Throw out the records: in a regular-season rivalry game the weaker side plays a little above itself. */
+function rivalryRatings(s: GameState, ratings: Ratings, f: { home: TeamId; away: TeamId } | undefined): Ratings {
+  if (!f || s.week > FINAL_WEEK || !L.isRivalry(s.rivalries, f.home, f.away)) return ratings;
+  const power = (id: TeamId) => ratings[id].off + ratings[id].def;
+  const dog = power(f.home) < power(f.away) ? f.home : f.away;
+  return { ...ratings, [dog]: { off: ratings[dog].off + 2, def: ratings[dog].def + 2 } };
 }
 
 function withEdge(r: { off: number; def: number }, e: { off: number; def: number }) {
@@ -666,6 +686,7 @@ export function reducer(s: GameState, a: Action): GameState {
     case "season/next": {
       if (!seasonOver(s)) return s;
       let next = s.offseason ? s : startOffseason(s);
+      if (careerBlocked(next)) return next; // fired: take a job (or walk away) first
       if (next.offseason!.phase === "portal") next = reducer(next, { type: "offseason/closePortal" });
       return beginSeason(next);
     }
@@ -726,7 +747,14 @@ export function reducer(s: GameState, a: Action): GameState {
     }
 
     case "offseason/begin":
-      return s.offseason?.phase === "ready" ? beginSeason(s) : s;
+      return s.offseason?.phase === "ready" && !careerBlocked(s) ? beginSeason(s) : s;
+
+    case "career/accept":
+      return acceptJob(s, a.team);
+
+    case "career/decline":
+      if (!s.career || !s.offseason || !s.career.offers.length) return s;
+      return { ...s, career: Car.declineOffers(s.career) };
   }
 }
 
@@ -755,7 +783,7 @@ function simWeek(prev: GameState, liveGame?: GameResult): GameState {
     const isUser = f.home === s.team || f.away === s.team;
     const played = isUser && liveGame && liveGame.home === f.home && liveGame.away === f.away;
     const g = played ? liveGame : simulateGame(f.home, f.away, hashSeed("game", s.seed, s.season, week, f.home, f.away), {
-      ratings: s.teamRatings,
+      ratings: rivalryRatings(s, s.teamRatings, f),
       ...(isUser ? userOpts : {}),
       neutral: (f as { neutral?: boolean }).neutral ?? false,
       fast: !isUser,
@@ -785,6 +813,46 @@ function simWeek(prev: GameState, liveGame?: GameResult): GameState {
   const depth = s.depth;
   const notes: string[] = [...autoNotes];
   const recruitingNews: NewsItem[] = [];
+
+  // Rivalries: the trophy changes hands (or doesn't); a win over your rival plays on the recruiting trail.
+  let rivalries = s.rivalries;
+  let rivalryHype = 0;
+  if (playoffRound === null && rivalries?.length) {
+    rivalries = L.recordRivalries(rivalries, s.season, results);
+    const mine = L.rivalryOf(s.rivalries, s.team);
+    if (game && mine && L.isRivalry([mine], game.home, game.away)) {
+      const opp = L.rivalOf(mine, s.team);
+      const won = (game.home === s.team ? game.homeScore - game.awayScore : game.awayScore - game.homeScore) > 0;
+      const trophy = L.trophyRef(mine);
+      const name = TEAMS[s.team].name;
+      rivalryHype = won ? 6 : -6;
+      recruitingNews.push(
+        news(
+          "GAME",
+          won
+            ? mine.holder === s.team ? `${name} keep ${trophy}` : `${name} take back ${trophy} from the ${TEAMS[opp].name}`
+            : mine.holder === opp ? `${TEAMS[opp].name} keep ${trophy}` : `${TEAMS[opp].name} take ${trophy} from the ${name}`,
+          week,
+          s.season,
+        ),
+      );
+      if (recruiting && !recruiting.signed) {
+        recruiting = {
+          ...recruiting,
+          board: recruiting.board.map((p) => {
+            if (p.status !== "open") return p;
+            const local = L.inRegion(s.team, p.hometown);
+            return { ...p, you: clamp100(p.you + (won ? (local ? 6 : 3) : local ? -4 : -2)) };
+          }),
+        };
+      }
+      notes.push(
+        won
+          ? `Rivalry win: ${trophy} is yours. Recruits took notice, especially in your region.`
+          : `Rivalry loss: the ${TEAMS[opp].name} have ${trophy}, and they'll use it on the recruiting trail.`,
+      );
+    }
+  }
 
   // Recruiting: each regular-season week passes on the board; the class signs after the last one.
   if (playoffRound === null && recruiting && !recruiting.signed) {
@@ -911,7 +979,8 @@ function simWeek(prev: GameState, liveGame?: GameResult): GameState {
     recruiting,
     gameTime: {},
     seasonStats,
-    hype: clamp100(s.hype + (userWon === null ? 0 : userWon ? 6 : -10)),
+    hype: clamp100(s.hype + (userWon === null ? 0 : userWon ? 6 : -10) + rivalryHype),
+    rivalries,
     press: null,
     recaps: [...s.recaps, { season: s.season, week, game, others, rankBefore, rankAfter, bidUpdates, injuryUpdates, notes }],
     unseenRecap: true,
@@ -943,7 +1012,7 @@ export function seasonSummary(s: GameState): SeasonSummary {
   }
   const target = s.program?.winTarget;
   const expectation = target === undefined || !s.coach ? undefined : expectationsVerdict(me.wins, target).label;
-  return { season: s.season, wins: me.wins, losses: me.losses, rank: me.rank, seed, finish, champion: champ, target: s.coach ? target : undefined, expectation };
+  return { season: s.season, team: s.team, wins: me.wins, losses: me.losses, rank: me.rank, seed, finish, champion: champ, target: s.coach ? target : undefined, expectation };
 }
 
 /** Program prestige (0-1) from the most recent finished season; drives recruiting interest and portal pull. */
@@ -975,8 +1044,24 @@ export function startOffseason(s: GameState): GameState {
     depth[p.pos] = list.sort((x, y) => byId.get(y)!.ovr - byId.get(x)!.ovr);
   }
   const playoffBonus = summary.finish === "National champions" ? 300_000 : summary.seed ? 100_000 : 0;
+  let career = s.career;
+  const careerNews: NewsItem[] = [];
+  if (career && s.coach && summary.expectation) {
+    career = Car.endSeason(career, s.team, s.season, {
+      wins: summary.wins,
+      losses: summary.losses,
+      expectation: summary.expectation,
+      playoff: !!summary.seed,
+      champion: summary.finish === "National champions",
+    }, s.seed);
+    const name = TEAMS[s.team].name;
+    if (career.status !== "active") careerNews.push(news("LEAGUE", `${name} fire head coach ${s.coach.name} after a ${summary.wins}–${summary.losses} season`, 0, nextSeason));
+    else if (career.security < 25) careerNews.push(news("LEAGUE", `Hot seat: ${name} AD gives ${s.coach.name} a public vote of confidence`, 0, nextSeason));
+    for (const o of career.offers) careerNews.push(news("LEAGUE", `${TEAMS[o.team].name} reach out to ${s.coach.name} about their opening`, 0, nextSeason));
+  }
   return {
     ...s,
+    career,
     history: [...s.history, summary],
     players,
     depth,
@@ -990,7 +1075,7 @@ export function startOffseason(s: GameState): GameState {
     lastOffseason: report,
     offseason: Off.openOffseason(players, depth, s.seed, nextSeason, s.team, !s.coach && nextSeason === 2),
     unseenRecap: false,
-    news: [news("PORTAL", `${report.graduated.length} seniors graduate; the January transfer window opens`, 0, nextSeason), ...s.news].slice(0, 40),
+    news: [...careerNews, news("PORTAL", `${report.graduated.length} seniors graduate; the January transfer window opens`, 0, nextSeason), ...s.news].slice(0, 40),
   };
 }
 
@@ -1022,7 +1107,8 @@ function beginSeasonCore(s: GameState): GameState {
     ...s,
     season,
     week: 1,
-    schedule: generateSchedule(hashSeed("season", s.seed, season)),
+    schedule: generateSchedule(hashSeed("season", s.seed, season), s.rivalries),
+    career: s.career ? { ...s.career, offers: [] } : null,
     lastOffseason: report,
     offseason: null,
     // Next year's class: the board opens with the season and signs in December.
@@ -1047,6 +1133,41 @@ function beginSeasonCore(s: GameState): GameState {
       news("RECRUITING", `${newcomers} newcomers join the ${TEAMS[s.team].name} for Season ${season}`, 0, season),
       ...s.news,
     ].slice(0, 40),
+  };
+}
+
+// ---- Coaching career --------------------------------------------------------------
+
+/** Fired and still deciding, or out of coaching: the next season can't start. */
+export const careerBlocked = (s: GameState) => !!s.career && s.career.status !== "active";
+
+/**
+ * Take a job offer in the offseason: you inherit the new program's roster, budget and expectations,
+ * and its January transfer window. Your old program's moves this offseason stay behind.
+ */
+function acceptJob(s: GameState, team: TeamId): GameState {
+  const offer = s.career?.offers.find((o) => o.team === team);
+  if (!s.career || !s.offseason || !offer || !s.coach) return s;
+  const nextSeason = s.season + 1;
+  const players = rosterFor(team, hashSeed("job", s.seed, nextSeason));
+  const depth = initialDepth(players);
+  const program = programProfile(team);
+  const from = TEAMS[s.team].name;
+  return {
+    ...s,
+    team,
+    program,
+    career: Car.takeJob(s.career, team, nextSeason),
+    players,
+    depth,
+    injuries: {},
+    gameTime: {},
+    nilBudget: program.baseBudget,
+    hype: 55,
+    plan: { offense: OFFENSE_STYLES[s.coach.offense].plan, defense: DEFENSE_STYLES[s.coach.defense].plan },
+    lastOffseason: emptyReport(),
+    offseason: Off.openOffseason(players, depth, s.seed, nextSeason, team, false),
+    news: [news("LEAGUE", `${s.coach.name} leaves the ${from} for the ${TEAMS[team].name}`, 0, nextSeason), ...s.news].slice(0, 40),
   };
 }
 
@@ -1094,7 +1215,18 @@ export function loadState(raw: string | null): GameState {
       parsed = { ...rest, version: 6, scenarios: { open: [], log: [] } } as GameState;
     }
     // Version 6 saves are all the classic Lone Star dynasty.
-    if (parsed?.version === 6) parsed = { ...parsed, version: STATE_VERSION, team: USER_TEAM, coach: null, program: programProfile(USER_TEAM) };
+    if (parsed?.version === 6) parsed = { ...parsed, version: 7, team: USER_TEAM, coach: null, program: programProfile(USER_TEAM) };
+    // Version 7 saves predate rivalries and coaching careers.
+    if (parsed?.version === 7) {
+      const p = parsed;
+      let career: Car.CareerState | null = null;
+      if (p.coach) {
+        const c = Car.newCareer(p.team, p.history[0]?.season ?? p.season);
+        const t = p.history.reduce((x, h) => ({ wins: x.wins + h.wins, losses: x.losses + h.losses, playoffs: x.playoffs + (h.seed ? 1 : 0), titles: x.titles + (h.finish === "National champions" ? 1 : 0) }), { wins: 0, losses: 0, playoffs: 0, titles: 0 });
+        career = { ...c, stints: [{ ...c.stints[0], ...t }] };
+      }
+      parsed = { ...p, version: STATE_VERSION, career, rivalries: L.makeRivalries(p.seed, p.coach ? [] : [[USER_TEAM, "rangers"]]) };
+    }
     // Saves from before the offseason update: no offseason field, and an older report shape.
     if (parsed && parsed.offseason === undefined) parsed = { ...parsed, offseason: null };
     if (parsed?.lastOffseason) parsed = { ...parsed, lastOffseason: { ...emptyReport(), ...parsed.lastOffseason } };

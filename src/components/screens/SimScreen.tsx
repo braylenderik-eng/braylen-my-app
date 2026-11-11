@@ -588,7 +588,10 @@ export function HistoryTable({ rows }: { rows: GameState["history"] }) {
       {[...rows].reverse().map((h) => (
         <li key={h.season} className="rounded-md border border-line bg-bg-2/70 px-3 py-2">
           <div className="flex justify-between">
-            <span className="font-display text-sm tracking-wider">Season {h.season}</span>
+            <span className="font-display text-sm tracking-wider">
+              Season {h.season}
+              {h.team && state.history.some((x) => x.team && x.team !== h.team) ? ` · ${TEAMS[h.team].short}` : ""}
+            </span>
             <span className="font-display tabular text-sm">
               {h.wins}–{h.losses} · #{h.rank}
             </span>

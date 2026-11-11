@@ -91,7 +91,7 @@ function ProspectRow({ p, state, needs, spots, active }: { p: Prospect; state: G
     <li className={cx("flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3", p.status === "signed" && "bg-good/5", p.status === "lost" && "opacity-50")}>
       <div className="w-56 min-w-0">
         <p className="font-display text-xs tracking-wider text-gold">
-          {"★".repeat(p.stars)} {p.fit && <span className="ml-1"><Tag tone="accent">Scheme fit</Tag></span>}
+          {"★".repeat(p.stars)} {p.fit && <span className="ml-1"><Tag tone="accent">Scheme fit</Tag></span>} {p.local && <span className="ml-1"><Tag tone="muted">Home region</Tag></span>}
         </p>
         <p className="truncate font-semibold">{p.name}</p>
         <p className="text-xs text-muted">

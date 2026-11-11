@@ -3,6 +3,7 @@
 
 import { TEAMS, type Fixture, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
+import { CONFERENCES, type Rivalry } from "./league";
 import { POS_ORDER, STARTERS, type Player, type Pos, type Year } from "./roster";
 
 export const SEASON_WEEKS = 12;
@@ -19,19 +20,33 @@ export function baseRatings(): Ratings {
 const KICKOFFS = ["Sat 11:00 AM ET", "Sat 12:00 PM CT", "Sat 2:30 PM CT", "Sat 3:30 PM ET", "Sat 6:00 PM CT", "Sat 7:30 PM ET", "Sat 9:15 PM MT"];
 
 /**
- * A 12-week schedule where every team plays every week (circle-method round robin over
- * 20 teams, first 12 rounds, with a seeded shuffle so each season differs).
+ * A 12-week schedule where every team plays every week (circle-method round robin over all
+ * teams, first 12 rounds, with a seeded shuffle so each season differs). With rivalries, the
+ * last week is rivalry week: every team plays its rival.
  */
-export function generateSchedule(seed: number): Record<number, Fixture[]> {
+export function generateSchedule(seed: number, rivalries: Rivalry[] = []): Record<number, Fixture[]> {
   const rng = makeRng(hashSeed("schedule", seed));
   const teams = [...ALL_TEAMS];
   for (let i = teams.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     [teams[i], teams[j]] = [teams[j], teams[i]];
   }
-  const n = teams.length; // 20
-  const fixed = teams[0];
+  const n = teams.length;
+  let fixed = teams[0];
   let rot = teams.slice(1);
+  if (rivalries.length * 2 === n) {
+    // Lay the rivals out as the final round's pairs, then rotate back to the first round.
+    const last: TeamId[] = new Array(n);
+    rivalries.forEach((r, k) => {
+      const [x, y] = rng() < 0.5 ? [r.a, r.b] : [r.b, r.a];
+      last[k] = x;
+      last[n - 1 - k] = y;
+    });
+    fixed = last[0];
+    const r12 = last.slice(1);
+    const back = (SEASON_WEEKS - 1) % (n - 1);
+    rot = [...r12.slice(back), ...r12.slice(0, back)];
+  }
   const schedule: Record<number, Fixture[]> = {};
   for (let w = 1; w <= SEASON_WEEKS; w++) {
     const round = [fixed, ...rot];
@@ -42,11 +57,12 @@ export function generateSchedule(seed: number): Record<number, Fixture[]> {
       // Alternate home sides by week so nobody is always home.
       const [home, away] = (w + i) % 2 === 0 ? [a, b] : [b, a];
       const conf = TEAMS[home].conf === TEAMS[away].conf;
+      const rivalry = rivalries.find((r) => (r.a === home && r.b === away) || (r.a === away && r.b === home));
       games.push({
         home,
         away,
         kickoff: KICKOFFS[Math.floor(rng() * KICKOFFS.length)],
-        label: conf ? "Conference game" : undefined,
+        label: rivalry ? `Rivalry · ${rivalry.trophy}` : conf ? "Conference game" : undefined,
       });
     }
     schedule[w] = games;
@@ -63,11 +79,13 @@ export function driftRatings(prev: Ratings, seed: number, season: number, team: 
   const next = { ...prev };
   for (const id of ALL_TEAMS) {
     if (id === team) continue;
-    const step = (x: number) => {
-      const pull = (82 - x) * 0.15;
+    // Each conference pulls its teams toward its identity (e.g. Delta League defenses, Redrock offenses).
+    const lean = CONFERENCES[TEAMS[id].conf]?.lean ?? { off: 0, def: 0 };
+    const step = (x: number, target: number) => {
+      const pull = (target - x) * 0.15;
       return Math.round(Math.max(66, Math.min(93, x + pull + (rng() - 0.5) * 6)));
     };
-    next[id] = { off: step(prev[id].off), def: step(prev[id].def) };
+    next[id] = { off: step(prev[id].off, 82 + lean.off), def: step(prev[id].def, 82 + lean.def) };
   }
   return next;
 }
@@ -94,7 +112,12 @@ const LAST = [
   "Norwood", "Oakes", "Pickett", "Rios", "Sandoval", "Thibodeaux", "Vaughn", "Alston", "Bridges", "Crowder", "Dunbar", "Ellington", "Fontenot",
   "Garrison", "Hollins", "Ivory", "Jamison", "Kearse", "Lockett", "Mabry", "Nunez", "Ortega", "Prescott", "Ransom", "Strickland", "Tolliver", "Whitaker",
 ];
-const TOWNS = ["Austin, TX", "Houston, TX", "Dallas, TX", "San Antonio, TX", "Lubbock, TX", "Shreveport, LA", "Tulsa, OK", "Little Rock, AR", "Albuquerque, NM", "Baton Rouge, LA"];
+const TOWNS = [
+  "Austin, TX", "Houston, TX", "Dallas, TX", "San Antonio, TX", "Lubbock, TX", "Shreveport, LA", "Tulsa, OK", "Little Rock, AR", "Albuquerque, NM", "Baton Rouge, LA",
+  "Mobile, AL", "Jackson, MS", "Birmingham, AL", "Phoenix, AZ", "Las Vegas, NV", "Salt Lake City, UT", "Denver, CO", "Fresno, CA", "Richmond, VA", "Charlotte, NC",
+  "Baltimore, MD", "Louisville, KY", "Pittsburgh, PA", "Columbus, OH", "Jacksonville, FL", "Tampa, FL", "Savannah, GA", "Atlanta, GA", "Charleston, SC", "Wichita, KS",
+  "Omaha, NE", "Sioux Falls, SD", "Des Moines, IA", "Fargo, ND", "Oklahoma City, OK", "Fort Worth, TX",
+];
 
 export interface OffseasonReport {
   graduated: Player[];

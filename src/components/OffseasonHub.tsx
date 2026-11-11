@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ROSTER_MAX } from "@/lib/game/offseason";
 import { keyDates, rosterSpots, type GameState } from "@/lib/game/state";
 import { money } from "@/lib/format";
+import { TEAMS } from "@/lib/game/data";
 import { useGame } from "./GameProvider";
 import { Button, ButtonLink, cx, Panel, Stat, Tag } from "./ui";
 
@@ -17,10 +18,14 @@ export function OffseasonHub({ state }: { state: GameState }) {
   const signedTransfers = off.bids.filter((b) => b.status === "signed").length;
   const gains = [...r.progressed].sort((a, b) => b.to - b.from - (a.to - a.from)).slice(0, 4);
 
+  const last = state.history[state.history.length - 1];
+  const newJob = !!last?.team && last.team !== state.team;
   const steps = [
     {
-      title: "Graduation, development & enrollment",
-      body: `${r.graduated.length} seniors graduated. ${r.progressed.length} players improved${
+      title: newJob ? "New job" : "Graduation, development & enrollment",
+      body: newJob
+        ? `You took over the ${TEAMS[state.team].name}. You inherit their roster, an NIL budget of ${money(state.program.baseBudget)} and a ${state.program.winTarget}-win target.`
+        : `${r.graduated.length} seniors graduated. ${r.progressed.length} players improved${
         gains.length ? ` — biggest: ${gains.map((g) => `${g.player.name} ${g.from}→${g.to}`).join(", ")}` : ""
       }. ${r.enrolled.length ? `${r.enrolled.length} signee${r.enrolled.length === 1 ? "" : "s"} from December enrolled.` : "No December signees to enroll."}`,
       action: null,

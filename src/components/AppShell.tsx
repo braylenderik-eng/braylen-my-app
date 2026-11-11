@@ -17,6 +17,7 @@ const NAV = [
   { href: "/portal", label: "Portal" },
   { href: "/rankings", label: "Rankings" },
   { href: "/news", label: "News" },
+  { href: "/coach", label: "Coach" },
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -34,11 +35,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="text-accent">Portal</span>Wars
           </Link>
           <nav aria-label="Main" hidden={showTitle} className="scrollbar-none -mb-px flex flex-1 gap-1 overflow-x-auto">
-            {NAV.map((n) => {
+            {NAV.filter((n) => n.href !== "/coach" || state.coach).map((n) => {
               const active = n.href === "/" ? path === "/" : path.startsWith(n.href);
               const hurt = Object.values(state.injuries).some((i) => i.status === "questionable");
               const offPhase = state.offseason?.phase;
-              const dot = (n.href === "/" && state.scenarios.open.length > 0) || (n.href === "/portal" && offPhase === "portal") || (n.href === "/sim" && state.unseenRecap) || (n.href === "/roster" && hurt);
+              const dot = (n.href === "/" && (state.scenarios.open.length > 0 || (state.career?.offers.length ?? 0) > 0)) || (n.href === "/portal" && offPhase === "portal") || (n.href === "/sim" && state.unseenRecap) || (n.href === "/roster" && hurt);
               return (
                 <Link
                   key={n.href}

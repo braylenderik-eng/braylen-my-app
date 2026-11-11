@@ -17,6 +17,7 @@ import { HistoryTable } from "./SimScreen";
 import { OffseasonHub } from "../OffseasonHub";
 import { DEFENSE_STYLES, OFFENSE_STYLES } from "@/lib/game/program";
 import { ScenarioCards } from "../ScenarioCards";
+import { Carousel, CareerOver, ConferenceCard, RivalryCard, SecurityMeter } from "../Career";
 
 export function Dashboard() {
   const { state } = useGame();
@@ -34,19 +35,27 @@ export function Dashboard() {
       {state.unseenRecap && <LastResultBanner state={state} />}
       <Alerts state={state} />
       {state.coach && !state.offseason && <ProgramCard state={state} />}
+      {state.career?.status === "over" && <CareerOver state={state} />}
+      {state.offseason && state.career && state.career.status !== "over" && (state.career.offers.length > 0 || state.career.status === "fired") && <Carousel state={state} />}
       {state.season > 1 && state.recaps.length === 0 && <NewSeason state={state} />}
 
       {state.offseason ? (
         <div className="grid gap-5 lg:grid-cols-12">
-          <div className="lg:col-span-8">
-            <OffseasonHub state={state} />
-          </div>
+          <div className="lg:col-span-8">{state.career?.status === "over" || state.career?.status === "fired" ? null : <OffseasonHub state={state} />}</div>
           <Panel kicker="Program" title="History" className="lg:col-span-4">
             <HistoryTable rows={state.history} />
           </Panel>
         </div>
       ) : hasGame ? (
-        <Preview state={state} />
+        <>
+          <Preview state={state} />
+          {!isPlayoffs(state) && (
+            <div className="mt-5 grid gap-5 lg:grid-cols-2">
+              <RivalryCard state={state} />
+              <ConferenceCard state={state} />
+            </div>
+          )}
+        </>
       ) : (
         <SeasonStatus state={state} />
       )}
@@ -247,6 +256,11 @@ function ProgramCard({ state }: { state: GameState }) {
   const pace = need === 0 ? "Target reached" : need > gamesLeft ? "Out of reach" : `${need} more win${need === 1 ? "" : "s"} needed`;
   return (
     <Panel kicker={`Head coach · ${coach.almaMater ? `${coach.almaMater} alum` : "First-year hire"}`} title={coach.name} className="mb-5">
+      {state.career && (
+        <div className="mb-3">
+          <SecurityMeter value={state.career.security} />
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         <Stat label="Program" value={state.program.tier} tone="gold" />
         <Stat label="Win target" value={state.program.winTarget} />
@@ -255,8 +269,8 @@ function ProgramCard({ state }: { state: GameState }) {
         <Stat label="Defense" value={DEFENSE_STYLES[coach.defense].name} />
       </div>
       <p className="mt-3 text-sm text-muted">
-        Calling your scheme&apos;s game plan gives a small edge. Meeting the win target grows next year&apos;s NIL budget; missing it badly
-        puts you on the hot seat.
+        Calling your scheme&apos;s game plan gives a small edge. Meeting the win target grows next year&apos;s NIL budget and your job
+        security; missing it drains both, and at zero security you&apos;re fired. Big seasons bring offers from bigger programs.
       </p>
     </Panel>
   );
