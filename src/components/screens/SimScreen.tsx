@@ -6,7 +6,7 @@ import { useState } from "react";
 import { FINAL_WEEK, SCOUTING, TEAMS, USER_TEAM, type TeamId } from "@/lib/game/data";
 import type { DefensePlan, Drive, GameResult, OffensePlan, StatLine } from "@/lib/game/sim";
 import {
-  champion, currentUserFixture, findPortalPlayer, firstWeek, isPlayoffs, PLAYOFF_ROUNDS, PLAYOFF_START, playoffField, playoffFixtures,
+  champion, currentUserFixture, dateLabel, firstWeek, KEY_DATES, isPlayoffs, PLAYOFF_ROUNDS, PLAYOFF_START, playoffField, playoffFixtures,
   roundOf, scheduleFixture, seasonOver, seasonSummary, seedOf, userEliminated, weekLabel, type GameState, type Score,
   type WeekRecap,
 } from "@/lib/game/state";
@@ -169,7 +169,7 @@ function GamePlan({ state }: { state: GameState }) {
     <div className="pb-28">
       <PageHeader
         title="Game plan"
-        sub={`Season ${state.season} · ${weekLabel(state.week)} · ${m.neutral ? "Neutral site" : m.fixture.home === USER_TEAM ? "Home game" : "Road game"}`}
+        sub={`Season ${state.season} · ${weekLabel(state.week)} · ${dateLabel(state.week)} · ${m.neutral ? "Neutral site" : m.fixture.home === USER_TEAM ? "Home game" : "Road game"}`}
       />
       <SelectionBanner state={state} />
       <MatchupHero state={state} m={m} />
@@ -409,9 +409,17 @@ function SelectionBanner({ state }: { state: GameState }) {
         seed ? "border-good/40 bg-gradient-to-br from-good/15 to-panel" : "border-accent/40 bg-gradient-to-br from-accent/15 to-panel",
       )}
     >
-      <p className="font-display text-xs tracking-[0.2em] text-muted">Selection day</p>
+      <p className="font-display text-xs tracking-[0.2em] text-muted">Selection Day · {KEY_DATES.selectionDay}</p>
       <p className="font-display text-3xl leading-tight font-bold sm:text-4xl">
         {seed ? `You're in — No. ${seed} seed${seed <= 4 ? " · first-round bye" : ""}` : "Left out of the 12-team field"}
+      </p>
+      <p className="mt-1 text-sm text-muted">
+        {state.playoff.autoBids?.includes(USER_TEAM)
+          ? "Automatic bid as a top-five conference champion. "
+          : seed
+            ? "At-large bid. "
+            : ""}
+        Five highest-ranked conference champions get automatic bids, seven at-large teams fill the field, and seeding goes straight by ranking.
       </p>
     </div>
   );
@@ -473,7 +481,10 @@ function Bracket({ state }: { state: GameState }) {
             </div>
           ))}
         </div>
-        <p className="mt-4 text-xs text-muted">Byes: {field.slice(0, 4).map((t) => `(${t.seed}) ${TEAMS[t.id].name}`).join(" · ")}</p>
+        <p className="mt-4 text-xs text-muted">
+          Byes: {field.slice(0, 4).map((t) => `(${t.seed}) ${TEAMS[t.id].name}`).join(" · ")} · <span className="text-gold">AQ</span> = conference champion
+          (automatic bid) · First round on campus Dec 18–19, quarterfinals Dec 30–Jan 1, semifinals Jan 14–15, title game Jan 25.
+        </p>
       </div>
     </Panel>
   );
@@ -495,7 +506,10 @@ function BracketGame({ state, f, g, round }: { state: GameState; f: ReturnType<t
         <div key={id} className={cx("flex items-center gap-2 px-2.5 py-1.5", winner && winner !== id && "opacity-45")}>
           <span className="font-display tabular w-4 text-xs text-dim">{seedOf(state, id)}</span>
           <TeamBadge id={id} size="sm" />
-          <span className={cx("flex-1 truncate text-sm", id === USER_TEAM && "font-bold text-accent-hi", winner === id && "font-semibold")}>{TEAMS[id].name}</span>
+          <span className={cx("flex-1 truncate text-sm", id === USER_TEAM && "font-bold text-accent-hi", winner === id && "font-semibold")}>
+            {TEAMS[id].name}
+            {state.playoff?.autoBids?.includes(id) && <span className="font-display ml-1.5 text-[9px] tracking-widest text-gold" title="Conference champion (automatic bid)">AQ</span>}
+          </span>
           {pts !== undefined && <span className="font-display tabular text-base font-semibold">{pts}</span>}
         </div>
       ))}
@@ -691,7 +705,8 @@ function Recap({ recap, fresh, onBack }: { recap: WeekRecap; fresh: boolean; onB
 
 function FrontOfficeNotes({ recap, g }: { recap: WeekRecap; g?: GameResult }) {
   const notes = g?.notes ?? [];
-  if (!notes.length && !recap.bidUpdates.length && !recap.injuryUpdates.length) return null;
+  const extra = recap.notes ?? [];
+  if (!notes.length && !extra.length && !recap.injuryUpdates.length) return null;
   return (
     <Panel kicker="Front office" title="Notes">
       <ul className="space-y-2 text-sm">
@@ -707,12 +722,10 @@ function FrontOfficeNotes({ recap, g }: { recap: WeekRecap; g?: GameResult }) {
             <span>{u.text}</span>
           </li>
         ))}
-        {recap.bidUpdates.map((u) => (
-          <li key={u.playerId} className="flex gap-2">
-            <Tag tone={u.status === "signed" ? "good" : "muted"}>Portal</Tag>
-            <span>
-              {findPortalPlayer(u.playerId)!.name} {u.status === "signed" ? "signed and joins the depth chart." : "went elsewhere. NIL and scholarship returned."}
-            </span>
+        {extra.map((n) => (
+          <li key={n} className="flex gap-2">
+            <Tag tone="good">Recruiting</Tag>
+            <span>{n}</span>
           </li>
         ))}
       </ul>

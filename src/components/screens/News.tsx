@@ -1,32 +1,35 @@
 "use client";
 
-import type { PressChoice } from "@/lib/game/state";
+import { rookOpen, type PressChoice } from "@/lib/game/state";
 import { money } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { cx, PageHeader, Panel, Stat, Tag } from "../ui";
 
 export function News() {
   const { state, dispatch } = useGame();
-  const d = state.rook.decision;
+  const open = rookOpen(state);
+  const { decision, outcome } = state.rook;
   const question =
     state.season > 1
       ? `Coach, Season ${state.season}. The fans expect more after last year. What's the message?`
-      : d === null
-      ? "Coach, Rook wants $1.1M or he walks Friday. Bayou is in his ear. Are you paying him, or pivoting to the portal?"
-      : d === "walked"
-        ? "Coach, Rook is headed to the portal. Was that the plan, or did Bayou beat you?"
-        : "Coach, $1.1M for a high schooler. Was Rook worth it with a playoff spot on the line?";
+      : open
+        ? "Coach, Bayou put $1.1M in front of Jalen Rook and he's still committed to you. Are you matching before Early Signing Day?"
+        : outcome === "flipped"
+          ? "Coach, Rook signed with Bayou. Was holding firm the plan, or did they just outbid you?"
+          : decision === "match" || outcome === "signed"
+            ? "Coach, $1.1M for a high schooler. Worth it with a playoff spot on the line?"
+            : "Coach, you held at $850K for Rook. Confident he signs?";
 
   const answers: { id: PressChoice; quote: string; effect: string }[] = [
     {
       id: "match",
       quote: state.season > 1 ? "We're here to win it all. Nothing less." : "We're matching. Stallions finish what we start.",
-      effect: d === null && state.season === 1 ? "Rook interest up · −$50K budget · fan reaction +" : "Hype up · fans buy in",
+      effect: open ? "Rook interest up · −$50K budget · fan reaction +" : "Hype up · fans buy in",
     },
     {
       id: "board",
-      quote: state.season > 1 ? "We trust the process and our young guys." : "We trust our board. Portal opens Friday.",
-      effect: d === null && state.season === 1 ? "Rook interest down · save budget · locker room calm" : "Budget stays put · locker room calm",
+      quote: state.season > 1 ? "We trust the process and our young guys." : "We trust our board and our budget.",
+      effect: open ? "Rook interest down · save budget · locker room calm" : "Budget stays put · locker room calm",
     },
     { id: "nocomment", quote: state.season > 1 ? "We'll let the games do the talking." : "No comment on recruiting dollars.", effect: "Neutral · media trust down slightly" },
   ];

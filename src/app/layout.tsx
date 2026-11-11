@@ -9,7 +9,7 @@ const display = Oswald({ variable: "--font-display", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Portal Wars",
-  description: "College football GM game. Jalen Rook wants $1.1M or he enters the portal Friday.",
+  description: "College football GM game: recruit, work the January transfer window, set your game plan and chase a title.",
   applicationName: "Portal Wars",
 };
 

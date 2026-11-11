@@ -1,14 +1,23 @@
 # Portal Wars
 
-A college football GM game prototype. You run the Lone Star Stallions as a multi-season dynasty. Season 1 opens late
-in the year with a five-star recruit's $1.1M ultimatum; after that, every season is a full 12-week schedule and a
-12-team playoff. In the offseason, seniors graduate and players develop, then you work the transfer portal (keep
-your own players from leaving, bid on others) and recruit a high-school class over three rounds before Signing Day.
-Set your depth chart and game plan, then play each game live — watch it unfold drive by drive and make the big calls
-(4th downs, extra point or two, halftime adjustments, clock management) — or quick-sim it. Build a history. All teams
+A college football GM game prototype. You run the Lone Star Stallions as a multi-season dynasty: set your depth chart and
+game plan, play games live (4th downs, two-point tries, halftime adjustments, clock management) or quick-sim them,
+recruit during the season, work the January transfer window, and chase a title through the 12-team playoff. All teams
 and players are fictional.
 
-Built with Next.js 16, TypeScript and Tailwind CSS. Progress is saved in the browser.
+### The calendar follows real college football
+
+| When (in game) | Real date | What happens |
+| --- | --- | --- |
+| Regular season, weeks 1–12 | late Aug – Sat, Nov 28 | Games; recruiting board for next year's class runs week by week |
+| Right after Week 12 | Dec 2–4 | **Early Signing Day** — offered prospects sign with you or a rival |
+| Selection Day | Dec 6 | 12-team field: five highest-ranked conference champions (auto bids) + seven at-large, seeded straight by ranking |
+| Playoff | Dec 18–19 → Jan 25 | First round on campus, quarterfinals, semifinals, title game |
+| Offseason | January | Seniors graduate, players develop, signees enroll, **one transfer window** (no spring or in-season window) |
+
+Season 1 opens late (Week 11) with a scenario: Jalen Rook, a committed 5★ QB, has a bigger offer from Bayou. Match it
+before Early Signing Day or he may flip. Simplifications: the game tracks ~40 key players (real rosters are capped at
+105), and the "NIL budget" is the money still uncommitted for new revenue-share/NIL deals, not the full ~$20.5M cap.
 
 ## Getting started
 
@@ -24,10 +33,10 @@ Then open http://localhost:3000.
 | Route         | What it is                                                                      |
 | ------------- | ------------------------------------------------------------------------------- |
 | `/`           | Weekly preview: game of the week, position matchups, playoff odds, league games |
-| `/sim`        | Game plan and the **Sim game** button; post-game recap; playoff bracket         |
+| `/sim`        | Game plan, **Play live** / **Quick sim**, recaps, playoff bracket, offseason     |
 | `/roster`     | Depth chart, injuries and player cards                                          |
-| `/recruiting` | Jalen Rook's ultimatum and NIL offers                                           |
-| `/portal`     | Transfer portal: search, filter, scout and bid                                  |
+| `/recruiting` | In-season recruiting board (and the Season 1 Rook scenario)                     |
+| `/portal`     | Portal watch in season; the January transfer window in the offseason            |
 | `/rankings`   | Committee rankings                                                              |
 | `/news`       | Headlines and the press conference                                              |
 
@@ -42,16 +51,16 @@ turnover, with odds driven by offense vs. defense ratings, home field (none at n
 `src/lib/game/roster.ts` turns the Stallions depth chart into those ratings: the top healthy players at each position
 start, and their OVRs (weighted by position) move the team's offense and defense ratings. Questionable players sit
 unless you start them, and a started questionable player can get hurt again mid-game. Transfers you sign join the
-depth chart; Jalen Rook, a high-school signee, enrolls next season.
+depth chart; high-school signees (December) enroll in the offseason.
 
 `src/lib/game/season.ts` handles the jump between seasons: a generated 12-week schedule for all 20 teams, opponent
 ratings that drift each year, and the offseason (seniors graduate, everyone else moves up a class and grows toward a
 hidden potential, signees enroll), and walk-ons that fill any position still short when a season starts.
 
-`src/lib/game/offseason.ts` runs the offseason: backups who want to transfer, a pool of transfers from other
-schools with bids that resolve when the window closes, and a recruiting board of 2★–5★ prospects. Each recruiting
-round you spend points on pitches and official visits while rival schools push back; only prospects with an NIL offer
-can sign, and on Signing Day each picks you or his top rival depending on who leads. Rosters are capped at 40.
+`src/lib/game/recruiting.ts` runs the in-season recruiting board: each week you spend points on pitches and official
+visits while rival schools push back; only prospects with an NIL/revenue-share offer can sign, and on Early Signing
+Day each picks you or his top rival depending on who leads. `src/lib/game/offseason.ts` runs the January transfer
+window: backups who want to transfer, and a pool of transfers with bids that resolve when the window closes.
 
 `src/lib/game/state.ts` holds the save: decisions, bids, injuries, season stats, the weekly sim of every game,
 committee re-ranking, playoff odds, the bracket, and program history. Season 1 covers weeks 11–12; later seasons

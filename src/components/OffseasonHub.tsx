@@ -1,33 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { RECRUIT_ROUNDS, ROSTER_MAX } from "@/lib/game/offseason";
+import { PORTAL_WINDOW, ROSTER_MAX } from "@/lib/game/offseason";
 import { rosterSpots, type GameState } from "@/lib/game/state";
 import { money } from "@/lib/format";
 import { useGame } from "./GameProvider";
 import { Button, ButtonLink, cx, Panel, Stat, Tag } from "./ui";
 
-/** The four offseason steps, with where you are and what to do next. */
+/** The offseason steps: graduation and development, the January transfer window, then the new season. */
 export function OffseasonHub({ state }: { state: GameState }) {
   const { dispatch } = useGame();
   const off = state.offseason!;
   const r = state.lastOffseason!;
   const next = state.season + 1;
-  const step = off.phase === "portal" ? 1 : off.phase === "recruiting" ? 2 : 3;
+  const step = off.phase === "portal" ? 1 : 2;
   const signedTransfers = off.bids.filter((b) => b.status === "signed").length;
-  const signedRecruits = off.board.filter((p) => p.status === "signed").length;
   const gains = [...r.progressed].sort((a, b) => b.to - b.from - (a.to - a.from)).slice(0, 4);
 
   const steps = [
     {
-      title: "Graduation & development",
-      body: `${r.graduated.length} seniors graduated. ${r.progressed.length} players improved${gains.length ? ` — biggest: ${gains.map((g) => `${g.player.name} ${g.from}→${g.to}`).join(", ")}` : ""}.${
-        r.enrolled.length ? ` Enrolled: ${r.enrolled.map((p) => p.name).join(", ")}.` : ""
-      }`,
+      title: "Graduation, development & enrollment",
+      body: `${r.graduated.length} seniors graduated. ${r.progressed.length} players improved${
+        gains.length ? ` — biggest: ${gains.map((g) => `${g.player.name} ${g.from}→${g.to}`).join(", ")}` : ""
+      }. ${r.enrolled.length ? `${r.enrolled.length} signee${r.enrolled.length === 1 ? "" : "s"} from December enrolled.` : "No December signees to enroll."}`,
       action: null,
     },
     {
-      title: "Portal window",
+      title: `January transfer window (${PORTAL_WINDOW})`,
       body:
         step === 1
           ? `${off.departures.length} of your players want to transfer. ${off.pool.length} players are in the portal. ${off.bids.length} bid${off.bids.length === 1 ? "" : "s"} filed.`
@@ -43,27 +42,12 @@ export function OffseasonHub({ state }: { state: GameState }) {
         ) : null,
     },
     {
-      title: "Recruiting",
-      body:
-        step < 2
-          ? "Opens when the portal window closes."
-          : step === 2
-            ? `Round ${off.round} of ${RECRUIT_ROUNDS} · ${off.points} recruiting points left · ${off.board.filter((p) => p.offered).length} offers out.`
-            : `Signing Day is done: ${signedRecruits} signed.`,
-      action:
-        step === 2 ? (
-          <div className="flex flex-wrap gap-2">
-            <ButtonLink href="/recruiting">Open the board</ButtonLink>
-            <Button variant="outline" onClick={() => dispatch({ type: "recruit/endRound" })}>
-              {off.round < RECRUIT_ROUNDS ? "End round" : "Signing Day"}
-            </Button>
-          </div>
-        ) : null,
-    },
-    {
       title: `Begin Season ${next}`,
-      body: step === 3 ? "Walk-ons fill any position that's still short, then the new schedule and preseason poll are set." : "After Signing Day.",
-      action: step === 3 ? <Button onClick={() => dispatch({ type: "offseason/begin" })}>Begin Season {next}</Button> : null,
+      body:
+        step === 2
+          ? "Walk-ons fill any position that's still short, then the new schedule, preseason poll and next year's recruiting board are set."
+          : "After the window closes.",
+      action: step === 2 ? <Button onClick={() => dispatch({ type: "offseason/begin" })}>Begin Season {next}</Button> : null,
     },
   ];
 
@@ -73,7 +57,7 @@ export function OffseasonHub({ state }: { state: GameState }) {
         <Stat label="NIL budget" value={money(state.nilBudget)} tone="gold" />
         <Stat label="Roster spots open" value={rosterSpots(state)} />
         <Stat label="Roster" value={`${state.players.length}/${ROSTER_MAX}`} />
-        <Stat label="Signed" value={signedTransfers + signedRecruits} tone="good" />
+        <Stat label="Transfers signed" value={signedTransfers} tone="good" />
       </div>
       <ol className="space-y-2">
         {steps.map((st, i) => {
@@ -105,11 +89,11 @@ export function OffseasonHub({ state }: { state: GameState }) {
         </details>
       )}
       <p className="mt-4 text-xs text-dim">
-        In a hurry?{" "}
+        Your recruiting class signed in December; the transfer window is the only way to add players now. In a hurry?{" "}
         <button className="underline hover:text-text" onClick={() => dispatch({ type: "season/next" })}>
           Skip the rest of the offseason
         </button>{" "}
-        — pending bids and offers resolve, and walk-ons fill any gaps.{" "}
+        — pending bids resolve and walk-ons fill any gaps.{" "}
         <Link href="/roster" className="underline hover:text-text">
           Roster
         </Link>

@@ -213,16 +213,21 @@ export interface RookOffer {
   you?: boolean;
 }
 
+// Season 1 scenario: Jalen Rook, a 5-star QB committed to the Stallions. Bayou Kings have offered more
+// than his current deal; his camp wants it matched before the early signing period (Dec 2-4) or he flips.
 export const ROOK_OFFERS: RookOffer[] = [
-  { school: "Bayou Kings", conf: "Delta League · conf champ", offer: 920_000, interest: 74, rank: "#4" },
-  { school: "Lone Star Stallions", conf: "YOU · Mesa League", offer: 850_000, interest: 68, rank: "#11", you: true },
+  { school: "Bayou Kings", conf: "Delta League · conf champ", offer: 1_100_000, interest: 74, rank: "#4" },
+  { school: "Lone Star Stallions", conf: "YOU · Mesa League · committed", offer: 850_000, interest: 68, rank: "#11", you: true },
   { school: "Pacific Titans", conf: "West Coast Alliance", offer: 780_000, interest: 51, rank: "#9" },
   { school: "Heartland Wolves", conf: "Midwest Circuit", offer: 640_000, interest: 33, rank: "#18" },
   { school: "Metro Hawks", conf: "Atlantic Circuit", offer: 510_000, interest: 22, rank: "#7" },
 ];
 
-export const ROOK_ASK = 1_100_000;
+export const ROOK_ASK = 1_100_000; // match Bayou
+export const ROOK_CURRENT = 850_000; // what he committed for
+export const ROOK = { id: "rook", name: "Jalen Rook", pos: "QB", ovr: 96, pot: 98, hometown: "Austin, TX" } as const;
 
+/** Season 1 "portal watch": players expected to enter the January transfer window. */
 export interface PortalPlayer {
   id: string;
   name: string;
@@ -232,29 +237,23 @@ export interface PortalPlayer {
   yr: string;
   ovr: number;
   pot: number;
-  ask: number;
-  rivals: number; // other schools bidding
+  ask: number; // expected asking price when the window opens
+  rivals: number; // other schools expected to bid
   tag?: "HOT" | "NEW";
-  biddable: boolean; // shortlisted players can be bid on without scouting
   note: string; // revealed by scouting
 }
 
 export const PORTAL: PortalPlayer[] = [
-  { id: "vale", name: "Darius Vale", from: "Bayou Kings", stat: "3,812 yds, 28 TD", pos: "QB", yr: "Jr", ovr: 92, pot: 94, ask: 475_000, rivals: 6, tag: "HOT", biddable: true, note: "Elite arm, slow eyes off his first read. Wants a starting job, not money." },
-  { id: "holloway", name: "Kade Holloway", from: "Heartland Wolves", stat: "11.5 sacks", pos: "EDGE", yr: "Sr", ovr: 90, pot: 90, ask: 390_000, rivals: 9, biddable: true, note: "Instant starter. One year left — a rental, but a great one." },
-  { id: "cole", name: "Miles Cole", from: "Pacific Titans", stat: "74 rec, 1,102 yds", pos: "WR", yr: "So", ovr: 88, pot: 93, ask: 310_000, rivals: 4, biddable: false, note: "Route technician with three years left. Family wants him closer to Texas." },
-  { id: "james", name: "Tyrell James", from: "Metro Hawks", stat: "All-Circuit OT", pos: "OT", yr: "Jr", ovr: 86, pot: 88, ask: 265_000, rivals: 3, biddable: false, note: "Plug-and-play right tackle. Would cover Marquez's ankle long-term." },
-  { id: "spillman", name: "Andre Spillman", from: "Desert Falcons", stat: "92 tkl, 2 INT", pos: "LB", yr: "Jr", ovr: 85, pot: 89, ask: 240_000, rivals: 5, biddable: false, note: "Downhill thumper. Struggles in space against spread teams." },
-  { id: "okafor", name: "Chris Okafor", from: "Red River Rangers", stat: "1,188 rush yds", pos: "RB", yr: "So", ovr: 84, pot: 91, ask: 295_000, rivals: 7, biddable: true, note: "Left the Rangers mid-season. Knows their whole playbook." },
-  { id: "prestwick", name: "Jonah Prestwick", from: "Capitol Statesmen", stat: "61.2% completions", pos: "QB", yr: "Sr", ovr: 83, pot: 83, ask: 180_000, rivals: 2, biddable: false, note: "Steady backup with one year left. Low ceiling, no drama." },
-  { id: "mott", name: "DeShawn Mott", from: "Iron Range Forge", stat: "14.5 TFL", pos: "DT", yr: "Jr", ovr: 82, pot: 87, ask: 210_000, rivals: 4, biddable: false, note: "Quick first step. Needs to add 10 pounds to play every down." },
-  { id: "cabrera", name: "Luis Cabrera", from: "Coastline Storm", stat: "48 rec, 612 yds", pos: "TE", yr: "Jr", ovr: 81, pot: 85, ask: 155_000, rivals: 1, biddable: false, note: "Reliable hands, average blocker. Low competition — good value." },
-  { id: "holcombe", name: "Brett Holcombe", from: "Northwoods", stat: "47/53 FG", pos: "K", yr: "Sr", ovr: 79, pot: 79, ask: 75_000, rivals: 0, biddable: false, note: "Automatic inside 45. Nobody else is calling." },
+  { id: "vale", name: "Darius Vale", from: "Bayou Kings", stat: "3,812 yds, 28 TD", pos: "QB", yr: "Jr", ovr: 92, pot: 94, ask: 475_000, rivals: 6, tag: "HOT", note: "Elite arm, slow eyes off his first read. Wants a starting job, not money." },
+  { id: "holloway", name: "Kade Holloway", from: "Heartland Wolves", stat: "11.5 sacks", pos: "EDGE", yr: "Jr", ovr: 90, pot: 91, ask: 390_000, rivals: 9, note: "Instant starter with a year left. Told teammates he's entering in January." },
+  { id: "cole", name: "Miles Cole", from: "Pacific Titans", stat: "74 rec, 1,102 yds", pos: "WR", yr: "So", ovr: 88, pot: 93, ask: 310_000, rivals: 4, note: "Route technician with three years left. Family wants him closer to Texas." },
+  { id: "james", name: "Tyrell James", from: "Metro Hawks", stat: "All-Circuit OT", pos: "OT", yr: "Jr", ovr: 86, pot: 88, ask: 265_000, rivals: 3, note: "Plug-and-play right tackle. Would cover Marquez's ankle long-term." },
+  { id: "spillman", name: "Andre Spillman", from: "Desert Falcons", stat: "92 tkl, 2 INT", pos: "LB", yr: "Jr", ovr: 85, pot: 89, ask: 240_000, rivals: 5, note: "Downhill thumper. Struggles in space against spread teams." },
+  { id: "okafor", name: "Chris Okafor", from: "Red River Rangers", stat: "1,188 rush yds", pos: "RB", yr: "So", ovr: 84, pot: 91, ask: 295_000, rivals: 7, tag: "HOT", note: "Left the Rangers in October; he'll enter as soon as the window opens. Knows their whole playbook." },
+  { id: "prestwick", name: "Jonah Prestwick", from: "Capitol Statesmen", stat: "61.2% completions", pos: "QB", yr: "Jr", ovr: 83, pot: 85, ask: 180_000, rivals: 2, note: "Lost the job to Elliot Marsh. Steady backup, low ceiling, no drama." },
+  { id: "mott", name: "DeShawn Mott", from: "Iron Range Forge", stat: "14.5 TFL", pos: "DT", yr: "Jr", ovr: 82, pot: 87, ask: 210_000, rivals: 4, note: "Quick first step. Needs to add 10 pounds to play every down." },
+  { id: "cabrera", name: "Luis Cabrera", from: "Coastline Storm", stat: "48 rec, 612 yds", pos: "TE", yr: "Jr", ovr: 81, pot: 85, ask: 155_000, rivals: 1, note: "Reliable hands, average blocker. Low competition — good value." },
+  { id: "holcombe", name: "Brett Holcombe", from: "Lakeshore Lancers", stat: "47/53 FG", pos: "K", yr: "Jr", ovr: 79, pot: 81, ask: 75_000, rivals: 0, note: "Automatic inside 45. Nobody else is calling." },
 ];
-
-export const ROOK_PORTAL: PortalPlayer = {
-  id: "rook", name: "Jalen Rook", from: "Austin Prep (TX)", stat: "5-star dual-threat", pos: "QB", yr: "HS", ovr: 96, pot: 98, ask: ROOK_ASK, rivals: 4, tag: "NEW", biddable: true,
-  note: "Still wants the $1.1M. Bayou is circling, but he told the wire he'd listen to a matching number.",
-};
 
 export const TEAM_NEEDS = ["QB", "EDGE"];

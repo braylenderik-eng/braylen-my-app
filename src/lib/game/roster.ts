@@ -1,6 +1,6 @@
 // Stallions roster, depth chart and the lineup math that feeds the sim. Pure TypeScript.
 
-import { PORTAL, ROOK_PORTAL, TEAMS, type PortalPlayer, type Skill, type TeamId } from "./data";
+import { ROOK, TEAMS, type Skill, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
 
 export type Pos = "QB" | "RB" | "WR" | "TE" | "OT" | "IOL" | "EDGE" | "DT" | "LB" | "CB" | "S" | "K" | "P";
@@ -89,26 +89,9 @@ export function initialDepth(players: Player[] = ROSTER): Record<Pos, string[]> 
   return depth;
 }
 
-/** Turn a signed portal player (or Rook) into a roster player. */
-export function playerFromPortal(pp: PortalPlayer, amount: number): Player {
-  const pos: Pos = pp.pos === "OT" ? "OT" : (pp.pos as Pos);
-  const num = 10 + (hashSeed(pp.id) % 89);
-  return {
-    id: pp.id,
-    name: pp.name,
-    num,
-    pos,
-    yr: pp.yr as Year | "HS",
-    ovr: pp.ovr,
-    hometown: pp.id === ROOK_PORTAL.id ? "Austin, TX" : `via ${pp.from}`,
-    nil: amount,
-    pot: pp.pot,
-    source: pp.id === ROOK_PORTAL.id ? "recruit" : "portal",
-  };
-}
-
-export function allPortalPlayers() {
-  return [ROOK_PORTAL, ...PORTAL];
+/** Jalen Rook as a signed high-school recruit (Season 1 scenario). */
+export function rookSignee(amount: number): Player {
+  return { id: ROOK.id, name: ROOK.name, num: 4, pos: ROOK.pos, yr: "HS", ovr: ROOK.ovr, pot: ROOK.pot, hometown: ROOK.hometown, nil: amount, source: "recruit" };
 }
 
 // ---- Lineup ---------------------------------------------------------------------

@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import { FINAL_WEEK, USER_TEAM } from "../data";
 import { starters, teamRatings } from "../roster";
 import {
-  canBid, champion, currentUserFixture, initialState, isPlayoffs, lineup, loadState, PLAYOFF_START, playoffFixtures, playoffOdds,
-  reducer, SEASON_DONE, seasonOver, standingOf, userSimOptions, type GameState,
+  champion, currentUserFixture, initialState, isPlayoffs, lineup, loadState, PLAYOFF_START, playoffFixtures, playoffOdds,
+  reducer, rookOpen, SEASON_DONE, seasonOver, selectField, standingOf, userSimOptions, type GameState, type Standing,
 } from "../state";
 
 const simAll = (s: GameState) => {
@@ -12,31 +12,54 @@ const simAll = (s: GameState) => {
 };
 
 describe("season state", () => {
-  test("paying Rook spends $1.1M and a scholarship, only once, and he joins as a signee", () => {
+  test("matching Bayou for Rook spends $1.1M once; he's a signee who doesn't play this season", () => {
     let s = reducer(initialState(), { type: "rook/pay" });
     expect(s.nilBudget).toBe(1_000_000);
-    expect(s.scholarships).toBe(2);
-    expect(s.rook).toMatchObject({ decision: "paid", interest: 93 });
+    expect(s.rook).toMatchObject({ decision: "match", outcome: null });
     expect(s.players.find((p) => p.id === "rook")?.yr).toBe("HS");
-    // A signee doesn't play this season.
     expect(starters(lineup(s)).QB.map((p) => p.id)).toEqual(["whitfield"]);
+    expect(rookOpen(s)).toBe(false); // the alert goes away once you decide
     s = reducer(s, { type: "rook/pay" });
     expect(s.nilBudget).toBe(1_000_000);
+    // He signs on Early Signing Day, right after the last regular-season week.
+    while (s.week <= FINAL_WEEK) s = reducer(s, { type: "sim/week" });
+    expect(s.rook.outcome).toBe("signed");
+    expect(s.players.filter((p) => p.id === "rook")).toHaveLength(1);
   });
 
-  test("letting Rook walk keeps the budget", () => {
-    const s = reducer(initialState(), { type: "rook/walk" });
-    expect(s.rook.decision).toBe("walked");
-    expect(s.nilBudget).toBe(2_100_000);
+  test("holding (or not deciding) keeps the money and resolves on Early Signing Day", () => {
+    let held = 0;
+    let flipped = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      let s = initialState(seed);
+      if (seed % 2) s = reducer(s, { type: "rook/walk" });
+      expect(s.nilBudget).toBe(2_100_000);
+      s = reducer(s, { type: "sim/week" });
+      expect(rookOpen(s)).toBe(s.rook.decision === null); // still open in Week 12 if undecided
+      s = reducer(s, { type: "sim/week" });
+      expect(rookOpen(s)).toBe(false); // the deadline has passed
+      expect(s.rook.outcome).not.toBeNull();
+      if (s.rook.outcome === "signed") {
+        held++;
+        expect(s.players.find((p) => p.id === "rook")?.nil).toBe(850_000);
+      } else {
+        flipped++;
+        expect(s.players.some((p) => p.id === "rook")).toBe(false);
+      }
+      // Too late to match now.
+      expect(reducer(s, { type: "rook/pay" })).toBe(s);
+    }
+    expect(held).toBeGreaterThan(0);
+    expect(flipped).toBeGreaterThan(held); // holding is a gamble
   });
 
-  test("portal players must be scouted before bidding unless shortlisted", () => {
+  test("no in-season transfers: the portal watch list can be scouted but not bid on", () => {
     let s = initialState();
-    expect(canBid(s, { id: "cole", biddable: false, ask: 1 } as never).ok).toBe(false);
     s = reducer(s, { type: "portal/scout", playerId: "cole" });
-    s = reducer(s, { type: "portal/bid", playerId: "cole" });
-    expect(s.bids).toHaveLength(1);
-    expect(s.nilBudget).toBe(2_100_000 - 310_000);
+    expect(s.scouts).toContain("cole");
+    expect((s as unknown as { bids: unknown[] }).bids).toHaveLength(0);
+    s = reducer(s, { type: "sim/week" });
+    expect(s.players.some((p) => p.source === "portal")).toBe(false);
   });
 
   test("simming a week plays the game, advances the week and re-ranks", () => {
@@ -88,20 +111,6 @@ describe("roster and depth chart", () => {
     expect(userSimOptions(s).risks).toMatchObject([{ name: "Andre Marquez", chance: 0.3 }]);
   });
 
-  test("a signed transfer joins the depth chart in rating order", () => {
-    let s = reducer(initialState(), { type: "portal/bid", playerId: "vale" });
-    // Find a week where the bid lands; outcomes are seeded, so try a few seasons' worth of states.
-    s = reducer(s, { type: "sim/week" });
-    const bid = s.bids[0];
-    if (bid.status === "signed") {
-      expect(s.depth.QB[0]).toBe("vale");
-      expect(starters(lineup(s)).QB[0].name).toBe("Darius Vale");
-    } else {
-      expect(s.depth.QB).not.toContain("vale");
-      expect(s.nilBudget).toBe(2_100_000);
-    }
-  });
-
   test("Stallions season stats accumulate from simmed games", () => {
     const s = reducer(initialState(), { type: "sim/week" });
     expect(s.seasonStats.whitfield?.games).toBe(1);
@@ -110,6 +119,20 @@ describe("roster and depth chart", () => {
 });
 
 describe("playoffs", () => {
+  test("the five highest-ranked conference champions get automatic bids; seeding is straight by rank", () => {
+    // Rank order with a low-ranked conference champion (Mesa League: rangers are #17 but 11-1 in this table).
+    const order = ["gulf", "summit", "bluegrass", "prairie", "canyon", "lakeshore", "piedmont", "metro", "desert", "bayou", "pacific", "heartland", "capitol", "iron", "coastline", "stallions", "rangers"] as const;
+    const table: Standing[] = order.map((id, i) => ({ id, wins: id === "rangers" ? 11 : 9, losses: id === "rangers" ? 1 : 3, sos: 0.5, score: 100 - i, rank: i + 1, prevRank: i + 1 }));
+    const { seeds, autoBids } = selectField(table);
+    expect(seeds).toHaveLength(12);
+    expect(autoBids).toHaveLength(5);
+    // Every auto-bid team is in, even if ranked outside the top 12.
+    for (const id of autoBids) expect(seeds).toContain(id);
+    // Seeds are in ranking order.
+    const rank = new Map(table.map((t) => [t.id, t.rank]));
+    expect(seeds.map((id) => rank.get(id)!)).toEqual([...seeds.map((id) => rank.get(id)!)].sort((a, b) => a - b));
+  });
+
   test("the final regular-season week sets a 12-team field and the playoffs run to a champion", () => {
     let s = initialState();
     while (s.week <= FINAL_WEEK) s = reducer(s, { type: "sim/week" });

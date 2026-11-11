@@ -1,20 +1,21 @@
 // Season state and every action that changes it. Pure: (state, action) => state.
 
 import {
-  BYE_SEEDS, FINAL_WEEK, FIRST_WEEK, INITIAL_STANDINGS, PLAYOFF_FIELD, PORTAL, ROOK_ASK, ROOK_PORTAL,
-  SCHEDULE, TEAMS, USER_TEAM, type Fixture, type PortalPlayer, type TeamId,
+  BYE_SEEDS, FINAL_WEEK, FIRST_WEEK, INITIAL_STANDINGS, PLAYOFF_FIELD, PORTAL, ROOK_ASK, ROOK_CURRENT,
+  SCHEDULE, TEAMS, USER_TEAM, type Fixture, type TeamId,
 } from "./data";
 import { ageRoster, ALL_TEAMS, baseRatings, driftRatings, emptyReport, fillAndOrder, generateSchedule, type OffseasonReport, type Ratings } from "./season";
 import * as Off from "./offseason";
+import * as Rec from "./recruiting";
 import { hashSeed, makeRng } from "./rng";
 import {
-  INITIAL_INJURIES, POS_LABEL, ROSTER, SIDE, STARTERS, initialDepth, isAvailable, playerFromPortal, ratingLossWithout,
+  INITIAL_INJURIES, POS_LABEL, ROSTER, SIDE, STARTERS, initialDepth, isAvailable, ratingLossWithout, rookSignee,
   skillFor, starters, teamRatings, type Injury, type LineupInput, type Player, type Pos,
 } from "./roster";
 import { DEFAULT_PLAN, simulateGame, type GamePlan, type GameResult, type GameTimeRisk, type SimOptions, type StatLine } from "./sim";
 
 export const STORAGE_KEY = "portal-wars-v3";
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 
 // ---- Calendar ------------------------------------------------------------------
 // Weeks 11-12 are the regular season, 13-16 the playoff rounds, 17 means the season is done.
@@ -27,6 +28,24 @@ export const isPlayoffs = (s: GameState) => s.week >= PLAYOFF_START && s.week < 
 export const seasonOver = (s: GameState) => s.week >= SEASON_DONE;
 export const regularSeasonOver = (s: GameState) => s.week > FINAL_WEEK;
 export const roundOf = (week: number) => week - PLAYOFF_START;
+
+/** Saturday of each regular-season week, ending with rivalry week on Nov 28. */
+export function weekDate(week: number) {
+  const d = new Date(Date.UTC(2026, 10, 28) - (FINAL_WEEK - week) * 7 * 86_400_000);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+/** Real-calendar label for a week: game dates in the season, round dates in the playoff. */
+export function dateLabel(week: number) {
+  if (week <= FINAL_WEEK) return `Sat, ${weekDate(week)}`;
+  return ["Dec 18–19", "Dec 30–Jan 1", "Jan 14–15", "Jan 25"][week - FINAL_WEEK - 1] ?? "January";
+}
+
+export const KEY_DATES = {
+  signingDay: "Dec 2–4",
+  selectionDay: "Dec 6",
+  portalWindow: "Jan 4–13",
+};
 
 export function weekLabel(week: number) {
   if (week <= FINAL_WEEK) return `Week ${week}`;
@@ -76,8 +95,9 @@ export interface WeekRecap {
   others: Score[];
   rankBefore: number;
   rankAfter: number;
-  bidUpdates: { playerId: string; status: "signed" | "lost" }[];
+  bidUpdates: { playerId: string; status: "signed" | "lost" }[]; // legacy (in-season bids no longer exist)
   injuryUpdates: { playerId: string; text: string }[];
+  notes?: string[]; // recruiting and signing-day news for the recap
 }
 
 export interface SeasonSummary {
@@ -109,7 +129,9 @@ export interface GameState {
   scholarships: number;
   hype: number;
   mediaTrust: number;
-  rook: { decision: null | "paid" | "walked"; offer: number; interest: number };
+  /** Season 1 scenario: match Bayou's offer for Rook before Early Signing Day, or hold. */
+  rook: { decision: null | "match" | "hold"; offer: number; interest: number; outcome: null | "signed" | "flipped" };
+  recruiting: Rec.RecruitingState | null; // next year's class; signs on Early Signing Day
   press: PressChoice | null;
   bids: Bid[];
   scouts: string[];
@@ -120,7 +142,7 @@ export interface GameState {
   gameTime: Record<string, "start" | "rest">;
   seasonStats: Record<string, StatLine & { games: number }>;
   standings: Standing[];
-  playoff: { seeds: TeamId[]; games: PlayoffGame[] } | null;
+  playoff: { seeds: TeamId[]; autoBids?: TeamId[]; games: PlayoffGame[] } | null;
   recaps: WeekRecap[];
   unseenRecap: boolean;
   news: NewsItem[];
@@ -131,13 +153,12 @@ export type Action =
   | { type: "rook/walk" }
   | { type: "press/answer"; choice: PressChoice }
   | { type: "portal/scout"; playerId: string }
-  | { type: "portal/bid"; playerId: string }
   | { type: "plan/set"; plan: Partial<GamePlan> }
   | { type: "depth/move"; pos: Pos; playerId: string; dir: -1 | 1 }
   | { type: "gametime/set"; playerId: string; call: "start" | "rest" }
   | { type: "sim/week"; userGame?: GameResult } // userGame: a game the user just played live
   | { type: "sim/toPlayoffs" }
-  | { type: "season/next" } // skip the offseason: let the portal and recruiting resolve with no moves
+  | { type: "season/next" } // skip the rest of the offseason: the portal window closes with no more moves
   | { type: "offseason/start" }
   | { type: "offseason/departure"; playerId: string; call: "keep" | "release" }
   | { type: "offseason/bid"; id: string }
@@ -146,7 +167,6 @@ export type Action =
   | { type: "recruit/visit"; id: string }
   | { type: "recruit/offer"; id: string }
   | { type: "recruit/withdraw"; id: string }
-  | { type: "recruit/endRound" }
   | { type: "offseason/begin" }
   | { type: "recap/seen" }
   | { type: "reset" };
@@ -180,7 +200,9 @@ export function initialState(seed: number = Math.floor(Math.random() * 2 ** 31))
     scholarships: 3,
     hype: 50,
     mediaTrust: 70,
-    rook: { decision: null, offer: 850_000, interest: 68 },
+    rook: { decision: null, offer: ROOK_CURRENT, interest: 68, outcome: null },
+    // Joining late in Season 1: two recruiting weeks before Early Signing Day.
+    recruiting: Rec.createBoard(ROSTER, seed, 2, 0.45, FINAL_WEEK - FIRST_WEEK + 1),
     press: null,
     bids: [],
     scouts: [],
@@ -195,9 +217,9 @@ export function initialState(seed: number = Math.floor(Math.random() * 2 ** 31))
     recaps: [],
     unseenRecap: false,
     news: [
-      { id: "n1", week: 11, tag: "RECRUITING", when: "8:22a", headline: "Rook texts Stallions — wants $1.1M or he enters the portal Friday" },
+      { id: "n1", week: 11, tag: "RECRUITING", when: "8:22a", headline: "Bayou offers committed QB Jalen Rook $1.1M; his camp wants Lone Star to match before Early Signing Day" },
       { id: "n2", week: 11, tag: "RANKINGS", when: "7:05a", headline: "Committee holds Lone Star at No. 11; Rangers game now a de facto play-in" },
-      { id: "n3", week: 11, tag: "PORTAL", when: "Yest", headline: "EDGE Kade Holloway hits portal; Stallions scouts already en route" },
+      { id: "n3", week: 11, tag: "PORTAL", when: "Yest", headline: "Heartland EDGE Kade Holloway tells teammates he'll enter the January transfer window" },
       { id: "n4", week: 11, tag: "INJURY", when: "Yest", headline: "Stallions RT Andre Marquez (ankle) limited in Thursday walkthrough — game-time call" },
       { id: "n5", week: 11, tag: "LEAGUE", when: "Yest", headline: "Private league \"DFW Dynasty\" invites Stallions GM — 8 of 12 slots filled" },
     ],
@@ -212,23 +234,11 @@ export function standingOf(s: GameState, id: TeamId) {
   return s.standings.find((t) => t.id === id);
 }
 
-/** Season 1's transfer window. Later seasons' windows arrive with the offseason portal update. */
-export function portalBoard(s: GameState): PortalPlayer[] {
-  if (s.season > 1) return [];
-  return s.rook.decision === "walked" ? [ROOK_PORTAL, ...PORTAL] : PORTAL;
-}
+/** Season 1 "portal watch": players expected to enter the January window. They can't sign until then. */
+export const watchList = () => PORTAL;
 
-export function findPortalPlayer(id: string) {
-  return id === ROOK_PORTAL.id ? ROOK_PORTAL : PORTAL.find((p) => p.id === id);
-}
-
-export function canBid(s: GameState, p: PortalPlayer) {
-  if (s.bids.some((b) => b.playerId === p.id)) return { ok: false, reason: "Bid filed" };
-  if (!p.biddable && !s.scouts.includes(p.id)) return { ok: false, reason: "Scout first" };
-  if (s.scholarships < 1) return { ok: false, reason: "No scholarships left" };
-  if (s.nilBudget < p.ask) return { ok: false, reason: "Not enough NIL" };
-  return { ok: true, reason: "" };
-}
+/** The Rook decision is open until Early Signing Day (right after the last regular-season week). */
+export const rookOpen = (s: GameState) => s.season === 1 && s.week <= FINAL_WEEK && s.rook.decision === null;
 
 /** Questionable players the user can make a game-time call on. */
 export function questionable(s: GameState) {
@@ -272,11 +282,31 @@ export function firstWeek(s: GameState) {
 // ---- Playoff bracket -------------------------------------------------------------
 
 const ROUND_META = [
-  { kickoff: "Sat 12:00 PM ET", venue: "Campus site" },
-  { kickoff: "Jan 1 · 4:00 PM ET", venue: "Quarterfinal bowl" },
-  { kickoff: "Jan 9 · 7:30 PM ET", venue: "Semifinal bowl" },
-  { kickoff: "Jan 19 · 7:30 PM ET", venue: "Title game" },
+  { kickoff: "Dec 18–19", venue: "Campus site" },
+  { kickoff: "Dec 30–Jan 1", venue: "Quarterfinal bowl" },
+  { kickoff: "Jan 14–15", venue: "Semifinal bowl" },
+  { kickoff: "Mon, Jan 25", venue: "Title game" },
 ];
+
+/**
+ * The 12-team field: the five highest-ranked conference champions get automatic bids, the next seven
+ * highest-ranked teams are at-large, and everyone is seeded straight by ranking.
+ * A conference champion here is the best record in its conference, ties broken by ranking.
+ */
+export function selectField(standings: Standing[]) {
+  const confOf = (id: TeamId) => TEAMS[id].conf;
+  const champs = new Map<string, Standing>();
+  for (const t of standings) {
+    const cur = champs.get(confOf(t.id));
+    const better = !cur || t.wins - t.losses > cur.wins - cur.losses || (t.wins - t.losses === cur.wins - cur.losses && t.rank < cur.rank);
+    if (better) champs.set(confOf(t.id), t);
+  }
+  const autoBids = [...champs.values()].sort((a, b) => a.rank - b.rank).slice(0, 5).map((t) => t.id);
+  const atLarge = standings.filter((t) => !autoBids.includes(t.id)).slice(0, PLAYOFF_FIELD - autoBids.length).map((t) => t.id);
+  const rankOf = new Map(standings.map((t) => [t.id, t.rank]));
+  const seeds = [...autoBids, ...atLarge].sort((a, b) => rankOf.get(a)! - rankOf.get(b)!);
+  return { seeds, autoBids };
+}
 
 /** Seed pairings for each round, as [higher seed, lower seed] slots. */
 function roundPairs(s: GameState, round: number): ([TeamId | null, TeamId | null] | null)[] {
@@ -398,43 +428,44 @@ export function reducer(s: GameState, a: Action): GameState {
       return initialState();
 
     case "rook/pay": {
-      if (s.season > 1 || s.rook.decision || s.nilBudget < ROOK_ASK || s.scholarships < 1) return s;
+      // Match Bayou's offer. The deal is a commitment for next season; the money is set aside now.
+      if (!rookOpen(s) || s.nilBudget < ROOK_ASK) return s;
       return {
         ...s,
         nilBudget: s.nilBudget - ROOK_ASK,
-        scholarships: s.scholarships - 1,
-        hype: s.hype + 10,
-        rook: { decision: "paid", offer: ROOK_ASK, interest: 93 },
-        players: [...s.players, playerFromPortal(ROOK_PORTAL, ROOK_ASK)],
-        news: [news("RECRUITING", "Rook commits to Lone Star after $1.1M offer: \"I'm a Stallion\"", s.week), ...s.news],
+        hype: clamp100(s.hype + 8),
+        rook: { decision: "match", offer: ROOK_ASK, interest: 95, outcome: null },
+        players: [...s.players, rookSignee(ROOK_ASK)],
+        news: [news("RECRUITING", "Lone Star matches Bayou for Jalen Rook: \"I'm a Stallion. I'll sign on day one.\"", s.week), ...s.news],
       };
     }
 
     case "rook/walk": {
-      if (s.season > 1 || s.rook.decision) return s;
+      // Hold at his current number and let his interest decide it on Signing Day.
+      if (!rookOpen(s)) return s;
       return {
         ...s,
-        hype: s.hype - 6,
-        rook: { ...s.rook, decision: "walked", interest: 6 },
-        news: [news("PORTAL", "Five-star QB Jalen Rook enters the portal after Stallions hold the line", s.week), ...s.news],
+        hype: clamp100(s.hype - 3),
+        rook: { ...s.rook, decision: "hold" },
+        news: [news("RECRUITING", "Lone Star holds firm at $850K for Rook; Bayou keeps calling", s.week), ...s.news],
       };
     }
 
     case "press/answer": {
       if (s.press) return s;
-      // The Rook storyline only exists in Season 1; afterwards answers just move hype and trust.
-      const d = s.season > 1 ? "closed" : s.rook.decision;
+      // The Rook storyline is only live in Season 1 before Signing Day; otherwise answers just move hype and trust.
+      const open = rookOpen(s);
       let { hype, mediaTrust, nilBudget, rook } = s;
       if (a.choice === "match") {
         hype += 8;
-        mediaTrust += d === "walked" ? 4 : 2;
-        if (!d) {
+        mediaTrust += 2;
+        if (open) {
           nilBudget -= 50_000;
           rook = { ...rook, interest: Math.min(99, rook.interest + 9) };
         }
       } else if (a.choice === "board") {
         mediaTrust += 2;
-        if (!d) rook = { ...rook, interest: Math.max(1, rook.interest - 12) };
+        if (open) rook = { ...rook, interest: Math.max(1, rook.interest - 12) };
       } else {
         mediaTrust -= 5;
       }
@@ -443,17 +474,6 @@ export function reducer(s: GameState, a: Action): GameState {
 
     case "portal/scout":
       return s.scouts.includes(a.playerId) ? s : { ...s, scouts: [...s.scouts, a.playerId] };
-
-    case "portal/bid": {
-      const p = findPortalPlayer(a.playerId);
-      if (!p || !canBid(s, p).ok || seasonOver(s)) return s;
-      return {
-        ...s,
-        nilBudget: s.nilBudget - p.ask,
-        scholarships: s.scholarships - 1,
-        bids: [...s.bids, { playerId: p.id, amount: p.ask, status: "pending" }],
-      };
-    }
 
     case "plan/set":
       return { ...s, plan: { ...s.plan, ...a.plan } };
@@ -487,7 +507,6 @@ export function reducer(s: GameState, a: Action): GameState {
       if (!seasonOver(s)) return s;
       let next = s.offseason ? s : startOffseason(s);
       if (next.offseason!.phase === "portal") next = reducer(next, { type: "offseason/closePortal" });
-      while (next.offseason!.phase === "recruiting") next = reducer(next, { type: "recruit/endRound" });
       return beginSeason(next);
     }
 
@@ -532,31 +551,18 @@ export function reducer(s: GameState, a: Action): GameState {
 
     case "recruit/pitch":
     case "recruit/visit": {
-      const off = s.offseason;
-      if (!off || off.phase !== "recruiting") return s;
-      const next = a.type === "recruit/pitch" ? Off.pitch(off, a.id, s.seed) : Off.visit(off, a.id, s.seed);
-      return next === off ? s : { ...s, offseason: next };
+      const rec = s.recruiting;
+      if (!rec || rec.signed || s.week > FINAL_WEEK) return s;
+      const next = a.type === "recruit/pitch" ? Rec.pitch(rec, a.id, s.seed) : Rec.visit(rec, a.id, s.seed);
+      return next === rec ? s : { ...s, recruiting: next };
     }
 
     case "recruit/offer":
     case "recruit/withdraw": {
-      const off = s.offseason;
-      if (!off || off.phase !== "recruiting") return s;
-      const r = a.type === "recruit/offer" ? Off.offer(off, a.id, s.nilBudget, Off.openSpots(s.players, off)) : Off.withdraw(off, a.id, s.nilBudget);
-      return r.off === off ? s : { ...s, nilBudget: r.nil, offseason: r.off };
-    }
-
-    case "recruit/endRound": {
-      const off = s.offseason;
-      if (!off || off.phase !== "recruiting") return s;
-      const r = Off.endRound(s.players, off, s.nilBudget, s.seed, s.season);
-      return {
-        ...s,
-        players: r.players,
-        nilBudget: r.nil,
-        offseason: r.off,
-        lastOffseason: r.off.phase === "ready" ? { ...s.lastOffseason!, recruits: r.recruits } : s.lastOffseason,
-      };
+      const rec = s.recruiting;
+      if (!rec || rec.signed || s.week > FINAL_WEEK) return s;
+      const r = a.type === "recruit/offer" ? Rec.offer(rec, a.id, s.nilBudget, Rec.openSpotsNextYear(s.players, rec)) : Rec.withdraw(rec, a.id, s.nilBudget);
+      return r.rec === rec ? s : { ...s, nilBudget: r.nil, recruiting: r.rec };
     }
 
     case "offseason/begin":
@@ -601,32 +607,44 @@ function simWeek(s: GameState, liveGame?: GameResult): GameState {
     playoff = { ...playoff, games: [...playoff.games, ...results.map((r) => ({ ...r, round: playoffRound, slot: r.slot! }))] };
   }
   if (week === FINAL_WEEK) {
-    playoff = { seeds: standings.slice(0, PLAYOFF_FIELD).map((t) => t.id), games: [] };
+    playoff = { ...selectField(standings), games: [] };
   }
 
-  const rng = makeRng(hashSeed("week", s.seed, s.season, week, s.bids.length, game?.homeScore ?? 0));
+  const rng = makeRng(hashSeed("week", s.seed, s.season, week, 0, game?.homeScore ?? 0));
 
-  // Portal bids resolve at the end of the week; signings join the depth chart by rating.
   const bidUpdates: WeekRecap["bidUpdates"] = [];
-  let { nilBudget, scholarships, players, depth } = s;
-  const bids = s.bids.map((b) => {
-    if (b.status !== "pending") return b;
-    const p = findPortalPlayer(b.playerId)!;
-    const chance = Math.min(0.92, Math.max(0.15, 0.85 - p.rivals * 0.06 + (s.hype - 50) / 200));
-    const status = rng() < chance ? ("signed" as const) : ("lost" as const);
-    if (status === "lost") {
-      nilBudget += b.amount;
-      scholarships += 1;
-    } else {
-      const pl = playerFromPortal(p, b.amount);
-      players = [...players, pl];
-      const byId = new Map(players.map((x) => [x.id, x]));
-      const list = [...depth[pl.pos], pl.id].sort((x, y) => byId.get(y)!.ovr - byId.get(x)!.ovr);
-      depth = { ...depth, [pl.pos]: list };
+  let { nilBudget, players, recruiting, rook } = s;
+  const depth = s.depth;
+  const notes: string[] = [];
+  const recruitingNews: NewsItem[] = [];
+
+  // Season 1: Rook decides on Early Signing Day, right after the last regular-season week.
+  if (playoffRound === null && week === FINAL_WEEK && s.season === 1 && rook.outcome === null) {
+    const holdChance = Math.min(0.6, Math.max(0.05, 0.3 + (rook.interest - 68) / 60 + (s.hype - 50) / 300));
+    const signs = rook.decision === "match" || (nilBudget >= ROOK_CURRENT && rng() < holdChance);
+    if (signs && rook.decision !== "match") {
+      nilBudget -= ROOK_CURRENT;
+      players = [...players, rookSignee(ROOK_CURRENT)];
     }
-    bidUpdates.push({ playerId: b.playerId, status });
-    return { ...b, status };
-  });
+    rook = { ...rook, decision: rook.decision ?? "hold", outcome: signs ? "signed" : "flipped" };
+    const text = signs ? "Jalen Rook signs with Lone Star on Early Signing Day." : "Jalen Rook flips to Bayou and signs with the Kings on Early Signing Day.";
+    notes.push(text);
+    recruitingNews.push(news("RECRUITING", text, week, s.season));
+  }
+
+  // Recruiting: each regular-season week passes on the board; the class signs after the last one.
+  if (playoffRound === null && recruiting && !recruiting.signed) {
+    recruiting = Rec.advanceWeek(recruiting, s.seed, s.season, week);
+    if (week === FINAL_WEEK) {
+      const r = Rec.signingDay(players, recruiting, nilBudget, s.seed);
+      players = r.players;
+      nilBudget = r.nil;
+      recruiting = r.rec;
+      const lost = r.rec.board.filter((p) => p.offered && p.status === "lost").length;
+      notes.push(`Early Signing Day: ${r.signees.length} signed${lost ? `, ${lost} offered prospect${lost === 1 ? "" : "s"} went elsewhere` : ""}. Signees enroll after the season.`);
+      if (r.signees.length) recruitingNews.push(news("RECRUITING", `Lone Star signs ${r.signees.length} on Early Signing Day`, week, s.season));
+    }
+  }
 
   // Injuries: heal, apply re-injuries, maybe add a new one.
   const injuryUpdates: WeekRecap["injuryUpdates"] = [];
@@ -721,10 +739,7 @@ function simWeek(s: GameState, liveGame?: GameResult): GameState {
     const champ = r.homeScore > r.awayScore ? r.home : r.away;
     if (champ !== USER_TEAM) headlines.push(news("PLAYOFF", `${TEAMS[champ].name} win the national championship`, week, s.season));
   }
-  for (const u of bidUpdates) {
-    const name = findPortalPlayer(u.playerId)!.name;
-    headlines.push(news("PORTAL", u.status === "signed" ? `${name} signs with the Stallions` : `${name} picks another school; NIL returned`, week, s.season));
-  }
+  headlines.push(...recruitingNews);
 
   const userWon = game ? (game.home === USER_TEAM ? game.homeScore > game.awayScore : game.awayScore > game.homeScore) : null;
 
@@ -734,16 +749,16 @@ function simWeek(s: GameState, liveGame?: GameResult): GameState {
     standings,
     playoff,
     nilBudget,
-    scholarships,
-    bids,
     players,
     depth,
     injuries,
+    recruiting,
+    rook,
     gameTime: {},
     seasonStats,
     hype: clamp100(s.hype + (userWon === null ? 0 : userWon ? 6 : -10)),
     press: null,
-    recaps: [...s.recaps, { season: s.season, week, game, others, rankBefore, rankAfter, bidUpdates, injuryUpdates }],
+    recaps: [...s.recaps, { season: s.season, week, game, others, rankBefore, rankAfter, bidUpdates, injuryUpdates, notes }],
     unseenRecap: true,
     news: [...headlines.reverse(), ...s.news],
   };
@@ -778,14 +793,14 @@ export function prestige(s: GameState) {
   return last ? Off.prestigeFrom(last.finish, last.rank) : 0.4;
 }
 
-/** Roster spots left under the cap: during the offseason this also counts pending bids and offers. */
+/** Roster spots: in the offseason, spots left this window; in season, spots that open up next year. */
 export function rosterSpots(s: GameState) {
-  return s.offseason ? Off.openSpots(s.players, s.offseason) : Off.ROSTER_MAX - s.players.length;
+  return s.offseason ? Off.openSpots(s.players, s.offseason) : Rec.openSpotsNextYear(s.players, s.recruiting);
 }
 
 /**
  * Start the offseason: archive the season, graduate seniors and develop everyone else,
- * reshuffle the league, set next year's NIL budget, and open the portal window and recruiting board.
+ * reshuffle the league, set next year's NIL budget, and open the January transfer window.
  */
 export function startOffseason(s: GameState): GameState {
   const summary = seasonSummary(s);
@@ -813,9 +828,9 @@ export function startOffseason(s: GameState): GameState {
     teamRatings: driftRatings(s.teamRatings, s.seed, nextSeason),
     nilBudget: 2_000_000 + summary.wins * 25_000 + playoffBonus,
     lastOffseason: report,
-    offseason: Off.openOffseason(players, depth, s.seed, nextSeason, Off.prestigeFrom(summary.finish, summary.rank)),
+    offseason: Off.openOffseason(players, depth, s.seed, nextSeason),
     unseenRecap: false,
-    news: [news("RECRUITING", `Offseason opens: ${report.graduated.length} seniors graduate and the portal window opens`, 0, nextSeason), ...s.news].slice(0, 40),
+    news: [news("PORTAL", `${report.graduated.length} seniors graduate; the January transfer window opens`, 0, nextSeason), ...s.news].slice(0, 40),
   };
 }
 
@@ -835,7 +850,7 @@ export function beginSeason(s: GameState): GameState {
   const order = [...ALL_TEAMS].sort((a, b) => power(b) - power(a));
   const standings: Standing[] = order.map((id, i) => ({ id, wins: 0, losses: 0, sos: 0.5, score: 100 - i * SPACING, rank: i + 1, prevRank: i + 1 }));
   const myRank = standings.find((t) => t.id === USER_TEAM)!.rank;
-  const newcomers = report.transfersIn.length + report.recruits.length + report.enrolled.length;
+  const newcomers = report.transfersIn.length + report.enrolled.length;
 
   return {
     ...s,
@@ -844,6 +859,8 @@ export function beginSeason(s: GameState): GameState {
     schedule: generateSchedule(hashSeed("season", s.seed, season)),
     lastOffseason: report,
     offseason: null,
+    // Next year's class: the board opens with the season and signs in December.
+    recruiting: Rec.createBoard(players, s.seed, season + 1, prestige(s), FINAL_WEEK),
     players,
     depth,
     injuries: {},
@@ -853,7 +870,7 @@ export function beginSeason(s: GameState): GameState {
     playoff: null,
     recaps: [],
     unseenRecap: false,
-    scholarships: Math.max(0, Off.ROSTER_MAX - players.length),
+    scholarships: Math.max(0, Rec.ROSTER_MAX - players.length),
     bids: [],
     scouts: [],
     press: null,
@@ -881,6 +898,25 @@ export function shortPositions(s: GameState): Pos[] {
 
 // ---- Persistence ---------------------------------------------------------------
 
+function migrateV4(old: GameState): GameState {
+  const legacy = old as unknown as { rook: { decision: string | null; offer: number; interest: number }; offseason: (Off.OffseasonState & { phase: string }) | null; bids?: Bid[] };
+  const past = old.season > 1 || old.week > FINAL_WEEK;
+  const d = legacy.rook?.decision;
+  const rook: GameState["rook"] = {
+    decision: d === "paid" ? "match" : d === "walked" ? "hold" : null,
+    offer: legacy.rook?.offer ?? ROOK_CURRENT,
+    interest: legacy.rook?.interest ?? 68,
+    outcome: d === "paid" ? (past ? "signed" : null) : d === "walked" || past ? "flipped" : null,
+  };
+  // In-season transfer bids no longer exist: refund anything still pending.
+  const refund = (legacy.bids ?? []).filter((b) => b.status === "pending").reduce((n, b) => n + b.amount, 0);
+  // Offseason recruiting moved into the season: an offseason stuck on recruiting skips to "ready".
+  const offseason = legacy.offseason ? ({ ...legacy.offseason, phase: legacy.offseason.phase === "portal" ? "portal" : "ready" } as Off.OffseasonState) : null;
+  const recruiting =
+    old.week <= FINAL_WEEK && !old.offseason ? Rec.createBoard(old.players, old.seed, old.season + 1, 0.45, FINAL_WEEK - old.week + 1) : null;
+  return { ...old, version: STATE_VERSION, rook, offseason, recruiting, bids: [], nilBudget: old.nilBudget + refund };
+}
+
 export function loadState(raw: string | null): GameState {
   if (!raw) return initialState();
   try {
@@ -889,6 +925,8 @@ export function loadState(raw: string | null): GameState {
     if (parsed?.version === 3) {
       parsed = { ...parsed, version: STATE_VERSION, season: 1, schedule: SCHEDULE, teamRatings: baseRatings(), history: [], lastOffseason: null, offseason: null };
     }
+    // Version 4 saves: Rook could "enter the portal", recruiting ran in the offseason, and Season 1 had in-season bids.
+    if (parsed?.version === 4) parsed = migrateV4(parsed);
     // Saves from before the offseason update: no offseason field, and an older report shape.
     if (parsed && parsed.offseason === undefined) parsed = { ...parsed, offseason: null };
     if (parsed?.lastOffseason) parsed = { ...parsed, lastOffseason: { ...emptyReport(), ...parsed.lastOffseason } };

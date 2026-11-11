@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { TEAMS, USER_TEAM, type TeamId } from "@/lib/game/data";
 import { winProbability } from "@/lib/game/sim";
 import {
-  champion, currentUserFixture, isPlayoffs, playoffFixtures, PLAYOFF_ROUNDS, roundOf, seasonOver, seedOf, standingOf, userEliminated, weekLabel,
+  champion, currentUserFixture, dateLabel, isPlayoffs, KEY_DATES, rookOpen, playoffFixtures, PLAYOFF_ROUNDS, roundOf, seasonOver, seedOf, standingOf, userEliminated, weekLabel,
   type GameState,
 } from "@/lib/game/state";
 import { money, pct, spreadFor } from "@/lib/format";
@@ -25,7 +25,7 @@ export function Dashboard() {
     <>
       <PageHeader
         title={state.offseason ? "Offseason" : seasonOver(state) ? "Season wrap" : playoffs ? "Playoff preview" : "Weekly preview"}
-        sub={`Season ${state.season} · ${weekLabel(state.week)}${hasGame ? " · The week ahead" : ""}`}
+        sub={`Season ${state.season} · ${state.offseason ? "Offseason" : `${weekLabel(state.week)} · ${dateLabel(state.week)}`}`}
         right={!seasonOver(state) && <ButtonLink href="/sim">{hasGame ? "Game plan & sim" : "Bracket & sim"}</ButtonLink>}
       />
 
@@ -55,11 +55,12 @@ function Alerts({ state }: { state: GameState }) {
   const questionable = state.players.filter((p) => state.injuries[p.id]?.status === "questionable");
   return (
     <>
-      {state.rook.decision === null && state.season === 1 && (
+      {rookOpen(state) && (
         <Link href="/recruiting" className="mb-3 flex items-center gap-3 rounded-lg border border-accent/40 bg-accent/10 px-4 py-3 transition-colors hover:bg-accent/15">
-          <Tag>Urgent</Tag>
+          <Tag>Recruiting</Tag>
           <p className="flex-1 text-sm">
-            <span className="font-semibold">Jalen Rook:</span> “$1.1M or I enter the portal Friday.” He wants an answer tonight.
+            <span className="font-semibold">Jalen Rook</span> (committed 5★ QB): Bayou offered $1.1M. Match it before Early Signing Day ({KEY_DATES.signingDay}) or he
+            may flip.
           </p>
           <span className="font-display text-sm tracking-wider text-accent-hi">Respond →</span>
         </Link>
@@ -253,12 +254,11 @@ function NewSeason({ state }: { state: GameState }) {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Stat label="Preseason rank" value={`#${me.rank}`} tone="gold" />
           <Stat label="Graduated" value={r.graduated.length} />
-          <Stat label="Newcomers" value={r.transfersIn.length + r.recruits.length + r.enrolled.length + r.walkOns.length} tone="good" />
+          <Stat label="Newcomers" value={r.transfersIn.length + r.enrolled.length + r.walkOns.length} tone="good" />
           <Stat label="NIL budget" value={money(state.nilBudget)} />
         </div>
         <p className="mt-3 text-sm text-muted">
-          {r.transfersIn.length} transfer{r.transfersIn.length === 1 ? "" : "s"} and {r.recruits.length} recruit{r.recruits.length === 1 ? "" : "s"} signed
-          {r.enrolled.length ? `, ${r.enrolled.length} signee${r.enrolled.length === 1 ? "" : "s"} enrolled` : ""}
+          {r.enrolled.length} December signee{r.enrolled.length === 1 ? "" : "s"} enrolled, {r.transfersIn.length} transfer{r.transfersIn.length === 1 ? "" : "s"} signed in January
           {r.walkOns.length ? `, ${r.walkOns.length} walk-on${r.walkOns.length === 1 ? "" : "s"} added` : ""}
           {r.transfersOut.length ? `; ${r.transfersOut.length} transferred out` : ""}.
         </p>

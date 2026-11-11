@@ -1,23 +1,22 @@
-// The offseason: portal window (your departures + other schools' transfers) and recruiting
-// (a big board of high-school prospects over three rounds, then Signing Day). Pure functions.
+// The offseason: the January transfer window. Your backups who want playing time may enter, and
+// players from other schools are available to bid on. (College football has one transfer window, in
+// January; there is no spring or in-season window.) Recruiting happens during the season — see
+// recruiting.ts. Pure functions.
 
-import { TEAMS, USER_TEAM, type TeamId } from "./data";
+import { PORTAL, TEAMS, USER_TEAM, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
 import { POS_ORDER, STARTERS, type Player, type Pos } from "./roster";
+import { ROSTER_MAX, needWeights, weightedPos } from "./recruiting";
 import { ALL_TEAMS, freeNumber, makePerson } from "./season";
 
-export const ROSTER_MAX = 40;
-export const RECRUIT_ROUNDS = 3;
-export const POINTS_PER_ROUND = 12;
-export const PITCH_COST = 1;
-export const VISIT_COST = 4;
-export const MAX_PITCHES_PER_ROUND = 3;
+export { ROSTER_MAX };
+export const PORTAL_WINDOW = "Jan 4–13"; // the 10-day January window
 
-export type Phase = "portal" | "recruiting" | "ready";
+export type Phase = "portal" | "ready";
 
 export interface Departure {
   playerId: string;
-  keepCost: number; // NIL raise to stay
+  keepCost: number; // NIL/revenue-share raise to stay
   call: "keep" | "release" | null;
 }
 
@@ -35,67 +34,45 @@ export interface Transfer {
   hometown: string;
 }
 
-export interface Prospect {
-  id: string;
-  name: string;
-  pos: Pos;
-  stars: 2 | 3 | 4 | 5;
-  ovr: number;
-  pot: number;
-  ask: number;
-  hometown: string;
-  rival: TeamId; // the school recruiting him hardest
-  you: number; // interest in the Stallions, 0-100
-  them: number; // interest in the rival
-  visited: boolean;
-  offered: boolean;
-  pitchesThisRound: number;
-  status: "open" | "signed" | "lost";
-}
-
 export interface OffseasonState {
   phase: Phase;
   departures: Departure[];
   pool: Transfer[];
   bids: { id: string; amount: number; status: "pending" | "signed" | "lost" }[];
-  board: Prospect[];
-  round: number; // 1..RECRUIT_ROUNDS; RECRUIT_ROUNDS + 1 after Signing Day
-  points: number;
-  log: string[]; // what happened, newest first
+  log: string[];
 }
 
 const pick = <T,>(rng: () => number, xs: readonly T[]) => xs[Math.floor(rng() * xs.length)];
 const clamp = (x: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, x));
 
-/** Positions where the roster is thin weigh more when generating transfers and prospects. */
-function needWeights(players: Player[]): [Pos, number][] {
-  return POS_ORDER.map((pos) => {
-    const have = players.filter((p) => p.pos === pos && p.yr !== "HS" && p.yr !== "Sr").length;
-    const want = STARTERS[pos] + 1;
-    const base = pos === "K" || pos === "P" ? 0.3 : STARTERS[pos];
-    return [pos, base * (have < want ? 2.2 : 1)];
-  });
-}
+const teamByName = (name: string): TeamId => (Object.keys(TEAMS) as TeamId[]).find((id) => TEAMS[id].name === name) ?? "iron";
 
-function weightedPos(rng: () => number, weights: [Pos, number][]): Pos {
-  const total = weights.reduce((n, [, w]) => n + w, 0);
-  let roll = rng() * total;
-  for (const [pos, w] of weights) {
-    roll -= w;
-    if (roll <= 0) return pos;
-  }
-  return weights[weights.length - 1][0];
+/** The Season 1 "portal watch" players, entering in the first January window. */
+function watchListTransfers(): Transfer[] {
+  return PORTAL.map((p) => ({
+    id: `watch-${p.id}`,
+    name: p.name,
+    from: teamByName(p.from),
+    pos: p.pos as Pos,
+    yr: (p.yr === "Sr" ? "Sr" : p.yr === "Jr" ? "Jr" : "So") as Transfer["yr"],
+    ovr: p.ovr,
+    pot: p.pot,
+    ask: p.ask,
+    rivals: p.rivals,
+    note: p.note,
+    hometown: `via ${p.from}`,
+  }));
 }
 
 /**
- * Build the offseason after graduation and development: which backups want out, who is in the
- * portal, and who is on the recruiting board. `prestige` (0-1) reflects last season's finish.
+ * Open the January window after graduation and development: which backups want out, and who is
+ * in the portal. In the first offseason the pool starts with the players you watched in Season 1.
  */
-export function openOffseason(players: Player[], depth: Record<Pos, string[]>, seed: number, season: number, prestige: number): OffseasonState {
+export function openOffseason(players: Player[], depth: Record<Pos, string[]>, seed: number, season: number): OffseasonState {
   const rng = makeRng(hashSeed("offseason-open", seed, season));
   const byId = new Map(players.map((p) => [p.id, p]));
 
-  // Backups with real talent and eligibility left may ask to leave for playing time.
+  // Backups with real talent and eligibility left may enter the portal for playing time.
   const departures: Departure[] = [];
   for (const pos of POS_ORDER) {
     const list = depth[pos].map((id) => byId.get(id)).filter((p): p is Player => !!p && p.yr !== "HS");
@@ -108,18 +85,17 @@ export function openOffseason(players: Player[], depth: Record<Pos, string[]>, s
 
   const weights = needWeights(players);
   const others = ALL_TEAMS.filter((t) => t !== USER_TEAM);
-
-  const pool: Transfer[] = Array.from({ length: 14 }, (_, i) => {
+  const carried = season === 2 ? watchListTransfers() : [];
+  const generated: Transfer[] = Array.from({ length: 14 - carried.length }, (_, i) => {
     const who = makePerson(["transfer", seed, season, i]);
     const r = who.rng;
     const pos = weightedPos(r, weights);
     const ovr = 74 + Math.floor(r() * 16);
     const yr = pick(r, ["So", "Jr", "Jr", "Sr", "Sr"] as const);
-    const from = pick(r, others);
     return {
       id: `tr-${season}-${i}`,
       name: who.name,
-      from,
+      from: pick(r, others),
       pos,
       yr,
       ovr,
@@ -135,51 +111,17 @@ export function openOffseason(players: Player[], depth: Record<Pos, string[]>, s
       ]),
       hometown: who.hometown,
     };
-  }).sort((a, b) => b.ovr - a.ovr);
-
-  const STAR_SPREAD: (2 | 3 | 4 | 5)[] = [5, 5, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2];
-  const board: Prospect[] = STAR_SPREAD.map((stars, i) => {
-    const who = makePerson(["recruit", seed, season, i]);
-    const r = who.rng;
-    const pos = weightedPos(r, weights);
-    const ovr = { 5: 74, 4: 70, 3: 66, 2: 62 }[stars] + Math.floor(r() * 6);
-    const pot = { 5: 92, 4: 86, 3: 80, 2: 75 }[stars] + Math.floor(r() * 7);
-    const ask = { 5: 250_000, 4: 100_000, 3: 30_000, 2: 10_000 }[stars] + Math.floor(r() * 4) * { 5: 50_000, 4: 25_000, 3: 10_000, 2: 3_000 }[stars];
-    const you = clamp(Math.round(55 - stars * 6 + prestige * 25 + (r() - 0.5) * 16));
-    const them = clamp(Math.round(30 + stars * 5 + (r() - 0.5) * 16));
-    return {
-      id: `hs-${season}-${i}`,
-      name: who.name,
-      pos,
-      stars,
-      ovr,
-      pot,
-      ask,
-      hometown: who.hometown,
-      rival: pick(r, others),
-      you,
-      them,
-      visited: false,
-      offered: false,
-      pitchesThisRound: 0,
-      status: "open" as const,
-    };
   });
 
-  return { phase: "portal", departures, pool, bids: [], board, round: 1, points: POINTS_PER_ROUND, log: [] };
+  return { phase: "portal", departures, pool: [...carried, ...generated].sort((a, b) => b.ovr - a.ovr), bids: [], log: [] };
 }
 
-// ---- Roster spots -------------------------------------------------------------------
-
-/** Spots left under the roster cap, counting pending bids and open offers. */
+/** Spots left under the roster cap during the window, counting releases and pending bids. */
 export function openSpots(players: Player[], off: OffseasonState) {
   const released = off.departures.filter((d) => d.call === "release").length;
   const pendingBids = off.bids.filter((b) => b.status === "pending").length;
-  const offers = off.board.filter((p) => p.offered && p.status === "open").length;
-  return ROSTER_MAX - players.length + released - pendingBids - offers;
+  return ROSTER_MAX - players.length + released - pendingBids;
 }
-
-// ---- Portal window ------------------------------------------------------------------
 
 export function signChance(t: Transfer, hype: number, prestige: number) {
   return clamp(0.82 - t.rivals * 0.06 + (hype - 50) / 250 + prestige * 0.12, 0.12, 0.93);
@@ -210,100 +152,7 @@ export function closePortal(players: Player[], off: OffseasonState, nil: number,
     return { ...b, status: "lost" as const };
   });
 
-  return {
-    players: next,
-    nil,
-    transfersOut,
-    transfersIn,
-    off: { ...off, phase: "recruiting" as const, bids, log: [...log.reverse(), ...off.log] },
-  };
-}
-
-// ---- Recruiting --------------------------------------------------------------------
-
-/** Chance a prospect with an offer picks you on Signing Day. */
-export function commitChance(p: Prospect) {
-  return 1 / (1 + Math.exp(-(p.you - p.them) / 7));
-}
-
-export function pitch(off: OffseasonState, id: string, seed: number): OffseasonState {
-  const p = off.board.find((x) => x.id === id);
-  if (!p || p.status !== "open" || off.points < PITCH_COST || p.pitchesThisRound >= MAX_PITCHES_PER_ROUND) return off;
-  const rng = makeRng(hashSeed("pitch", seed, id, off.round, p.pitchesThisRound));
-  const gain = Math.round((8 - p.pitchesThisRound * 2) + rng() * 4); // diminishing within a round
-  return {
-    ...off,
-    points: off.points - PITCH_COST,
-    board: off.board.map((x) => (x.id === id ? { ...x, you: clamp(x.you + gain), pitchesThisRound: x.pitchesThisRound + 1 } : x)),
-  };
-}
-
-export function visit(off: OffseasonState, id: string, seed: number): OffseasonState {
-  const p = off.board.find((x) => x.id === id);
-  if (!p || p.status !== "open" || p.visited || off.points < VISIT_COST) return off;
-  const rng = makeRng(hashSeed("visit", seed, id));
-  const gain = 15 + Math.round(rng() * 10);
-  return {
-    ...off,
-    points: off.points - VISIT_COST,
-    board: off.board.map((x) => (x.id === id ? { ...x, you: clamp(x.you + gain), visited: true } : x)),
-    log: [`Official visit: ${p.name} (+${gain} interest).`, ...off.log],
-  };
-}
-
-/** Offer an NIL deal. Required to sign him; reserves the money and a roster spot. */
-export function offer(off: OffseasonState, id: string, nil: number, spots: number) {
-  const p = off.board.find((x) => x.id === id);
-  if (!p || p.status !== "open" || p.offered || nil < p.ask || spots < 1) return { off, nil };
-  return {
-    nil: nil - p.ask,
-    off: { ...off, board: off.board.map((x) => (x.id === id ? { ...x, offered: true, you: clamp(x.you + 5) } : x)) },
-  };
-}
-
-export function withdraw(off: OffseasonState, id: string, nil: number) {
-  const p = off.board.find((x) => x.id === id);
-  if (!p || !p.offered || p.status !== "open") return { off, nil };
-  return { nil: nil + p.ask, off: { ...off, board: off.board.map((x) => (x.id === id ? { ...x, offered: false, you: clamp(x.you - 5) } : x)) } };
-}
-
-/** End a recruiting round: rivals make their pushes. After the last round, Signing Day. */
-export function endRound(players: Player[], off: OffseasonState, nil: number, seed: number, season: number) {
-  const rng = makeRng(hashSeed("round", seed, season, off.round));
-  const board = off.board.map((p) => {
-    if (p.status !== "open") return p;
-    const push = 3 + Math.round(rng() * (4 + p.stars * 2));
-    const fade = p.pitchesThisRound === 0 && !p.visited ? 3 : 0;
-    return { ...p, them: clamp(p.them + push), you: clamp(p.you - fade), pitchesThisRound: 0 };
-  });
-  if (off.round < RECRUIT_ROUNDS) {
-    return { players, nil, recruits: [] as Player[], off: { ...off, board, round: off.round + 1, points: POINTS_PER_ROUND } };
-  }
-
-  // Signing Day.
-  const recruits: Player[] = [];
-  const log: string[] = [];
-  let next = players;
-  const final = board.map((p) => {
-    if (p.status !== "open") return p;
-    if (!p.offered) return { ...p, status: "lost" as const };
-    if (rng() < commitChance(p)) {
-      const pl: Player = { id: p.id, name: p.name, num: freeNumber(next, rng), pos: p.pos, yr: "Fr", ovr: p.ovr, pot: p.pot, hometown: p.hometown, nil: p.ask, source: "recruit" };
-      next = [...next, pl];
-      recruits.push(pl);
-      log.push(`${"★".repeat(p.stars)} ${p.pos} ${p.name} signed with the Stallions.`);
-      return { ...p, status: "signed" as const };
-    }
-    nil += p.ask;
-    log.push(`${"★".repeat(p.stars)} ${p.pos} ${p.name} picked ${TEAMS[p.rival].name}.`);
-    return { ...p, status: "lost" as const };
-  });
-  return {
-    players: next,
-    nil,
-    recruits,
-    off: { ...off, board: final, round: RECRUIT_ROUNDS + 1, points: 0, phase: "ready" as const, log: [...log.reverse(), ...off.log] },
-  };
+  return { players: next, nil, transfersOut, transfersIn, off: { ...off, phase: "ready" as const, bids, log: [...log.reverse(), ...off.log] } };
 }
 
 /** 0-1 program prestige from last season, used for recruiting interest and portal pull. */

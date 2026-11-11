@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { money } from "@/lib/format";
-import { weekLabel } from "@/lib/game/state";
+import { rookOpen, weekLabel } from "@/lib/game/state";
 import { Button, cx, Dialog } from "./ui";
 import { useGame } from "./GameProvider";
 
@@ -22,7 +22,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { state, dispatch, hydrated } = useGame();
   const path = usePathname();
   const [confirmReset, setConfirmReset] = useState(false);
-  const pendingRook = state.rook.decision === null;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -36,7 +35,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               const active = n.href === "/" ? path === "/" : path.startsWith(n.href);
               const hurt = Object.values(state.injuries).some((i) => i.status === "questionable");
               const offPhase = state.offseason?.phase;
-              const dot = (n.href === "/recruiting" && ((pendingRook && state.season === 1) || offPhase === "recruiting")) || (n.href === "/portal" && offPhase === "portal") || (n.href === "/sim" && state.unseenRecap) || (n.href === "/roster" && hurt);
+              const dot = (n.href === "/recruiting" && rookOpen(state)) || (n.href === "/portal" && offPhase === "portal") || (n.href === "/sim" && state.unseenRecap) || (n.href === "/roster" && hurt);
               return (
                 <Link
                   key={n.href}
