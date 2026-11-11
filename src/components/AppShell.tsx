@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { money } from "@/lib/format";
 import { weekLabel } from "@/lib/game/state";
-import { Button, cx, Dialog } from "./ui";
+import { Button, ButtonLink, cx, Dialog } from "./ui";
 import { useGame } from "./GameProvider";
 
 const NAV = [
@@ -19,9 +19,10 @@ const NAV = [
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { state, dispatch, hydrated } = useGame();
+  const { state, hydrated, fresh, welcomed } = useGame();
   const path = usePathname();
   const [confirmReset, setConfirmReset] = useState(false);
+  const router = useRouter();
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -74,34 +75,63 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
         {/* Always render the page (Next validates every segment); hide it until the save has loaded. */}
         {!hydrated && <p className="font-display py-20 text-center tracking-widest text-muted">Loading season…</p>}
-        <div hidden={!hydrated}>{children}</div>
+        {hydrated && fresh && path !== "/new" && <Welcome onClassic={welcomed} />}
+        <div hidden={!hydrated || (fresh && path !== "/new")}>{children}</div>
       </main>
 
       <footer className="border-t border-line">
         <div className="font-display mx-auto flex max-w-7xl items-center justify-between px-4 py-3 text-[11px] tracking-widest text-dim">
           <span>Game concept · prototype · all teams and players are fictional</span>
           <button onClick={() => setConfirmReset(true)} className="hover:text-text">
-            Reset save
+            New dynasty
           </button>
         </div>
       </footer>
 
-      <Dialog open={confirmReset} title="Start the season over?" onClose={() => setConfirmReset(false)}>
-        <p className="text-sm text-muted">This erases every season, your decisions, depth chart and results, and starts over at Season 1, Week 11.</p>
+      <Dialog open={confirmReset} title="Start a new dynasty?" onClose={() => setConfirmReset(false)}>
+        <p className="text-sm text-muted">
+          Set up a new coach and program. Your current save ({state.coach ? `${state.coach.name}, ` : ""}Season {state.season}) is replaced once you
+          start the new one.
+        </p>
         <div className="mt-5 grid grid-cols-2 gap-3">
           <Button variant="outline" onClick={() => setConfirmReset(false)}>
             Cancel
           </Button>
           <Button
             onClick={() => {
-              dispatch({ type: "reset" });
               setConfirmReset(false);
+              router.push("/new");
             }}
           >
-            Reset
+            Set up
           </Button>
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+/** First visit: set up a dynasty, or jump straight into the classic late-season scenario. */
+function Welcome({ onClassic }: { onClassic: () => void }) {
+  return (
+    <div className="mx-auto max-w-2xl py-10 text-center">
+      <p className="font-display text-xs tracking-[0.3em] text-accent-hi">College football GM</p>
+      <h1 className="font-display mt-2 text-5xl font-bold sm:text-6xl">
+        <span className="text-accent">Portal</span>Wars
+      </h1>
+      <p className="mx-auto mt-4 max-w-lg text-muted">
+        Pick a program, set your schemes, recruit through the season, survive Early Signing Day and the January transfer window, and
+        chase a title in the new playoff.
+      </p>
+      <div className="mt-8 grid gap-3 sm:grid-cols-2">
+        <ButtonLink href="/new" className="py-4 text-base">
+          New dynasty
+        </ButtonLink>
+        <Button variant="outline" onClick={onClassic} className="py-4 text-base">
+          Quick start: Lone Star, Week 11
+        </Button>
+      </div>
+      <p className="mt-3 text-xs text-dim">The quick start drops you into a playoff push with two weeks left in the 2026 season.</p>
     </div>
   );
 }

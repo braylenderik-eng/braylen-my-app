@@ -1,9 +1,45 @@
 # Portal Wars
 
-A college football GM game prototype. You run the Lone Star Stallions as a multi-season dynasty in a fictional
+A college football GM game prototype. You run a program of your choice as a multi-season dynasty in a fictional
 40-team league: set your depth chart and game plan, play games live (4th downs, two-point tries, halftime adjustments,
 clock management) or quick-sim them, handle in-season situations, recruit during the season, work the January transfer
 window, and chase a title. All teams and players are fictional.
+
+### Starting a dynasty
+
+The first visit opens a title screen with two options:
+
+- **New dynasty**: a setup flow at `/new`.
+  1. Name your coach and alma mater.
+  2. Pick any of the 40 programs.
+  3. Choose an offensive and a defensive philosophy.
+  4. Start at Week 1 of the 2026 season.
+- **Quick start**: drops you into the Lone Star Stallions' Week 11 playoff push.
+
+"New dynasty" in the footer starts over. There are no accounts yet; the save lives in your browser.
+
+What your choices change:
+
+- **Program expectations.** Stronger programs are Blue bloods or Contenders, with bigger NIL budgets and higher win
+  targets (10 or 9 wins). Rising and Rebuild programs get smaller budgets and lower targets (7 or 5 wins). At the end of
+  each season the record is judged against the target, and next year's budget moves with it:
+
+  | Verdict | Budget change |
+  | --- | --- |
+  | Exceeded | +$300K |
+  | Met | +$100K |
+  | Fell short | none |
+  | Hot seat | −$250K |
+
+- **Offensive and defensive philosophy.**
+  - Offense: Air Raid, Spread Option, Pro Style or Ground & Pound.
+  - Defense: Attacking, Multiple, or Bend, Don't Break.
+
+  Each sets your default game plan. Calling the plan your scheme is built around adds +1 to that side's rating.
+- **Scheme fit in recruiting.**
+  - Prospects at the positions your schemes use (e.g. QB/WR for Air Raid, EDGE/LB for Attacking) start keener on you.
+  - Others start a little cooler.
+  - The board tags them "Scheme fit".
 
 ### The calendar follows real college football
 
@@ -43,10 +79,11 @@ Then open http://localhost:3000.
 
 | Route         | What it is                                                                      |
 | ------------- | ------------------------------------------------------------------------------- |
-| `/`           | Weekly preview: game of the week, position matchups, playoff odds, league games |
+| `/`           | Weekly preview: game of the week, your program and expectations, playoff odds   |
+| `/new`        | New dynasty setup: coach, program, schemes                                      |
 | `/sim`        | Game plan, **Play live** / **Quick sim**, recaps, playoff bracket, offseason     |
 | `/roster`     | Depth chart, injuries and player cards                                          |
-| `/recruiting` | In-season recruiting board (and the Season 1 Rook scenario)                     |
+| `/recruiting` | In-season recruiting board for next year's class                                |
 | `/portal`     | Portal watch in season; the January transfer window in the offseason            |
 | `/rankings`   | Committee rankings                                                              |
 | `/news`       | Headlines and the press conference                                              |
@@ -59,12 +96,12 @@ with the default calls, so a live game where you accept every default plays out 
 seasons play out differently, but a given save is reproducible. Each drive ends in a touchdown, field goal, punt or
 turnover, with odds driven by offense vs. defense ratings, home field (none at neutral playoff sites) and your game plan.
 
-`src/lib/game/roster.ts` turns the Stallions depth chart into those ratings: the top healthy players at each position
+`src/lib/game/roster.ts` turns your depth chart into those ratings (and builds a starting roster for any program): the top healthy players at each position
 start, and their OVRs (weighted by position) move the team's offense and defense ratings. Questionable players sit
 unless you start them, and a started questionable player can get hurt again mid-game. Transfers you sign join the
 depth chart; high-school signees (December) enroll in the offseason.
 
-`src/lib/game/season.ts` handles the jump between seasons: a generated 12-week schedule for all 20 teams, opponent
+`src/lib/game/season.ts` handles the jump between seasons: a generated 12-week schedule for all 40 teams, opponent
 ratings that drift each year, and the offseason (seniors graduate, everyone else moves up a class and grows toward a
 hidden potential, signees enroll), and walk-ons that fill any position still short when a season starts.
 
@@ -73,11 +110,12 @@ visits while rival schools push back; only prospects with an NIL/revenue-share o
 Day each picks you or his top rival depending on who leads. `src/lib/game/offseason.ts` runs the January transfer
 window: backups who want to transfer, and a pool of transfers with bids that resolve when the window closes.
 
+`src/lib/game/program.ts` holds coaching styles, scheme fit, program tiers and expectations.
 `src/lib/game/events.ts` defines the in-season scenarios: when each can come up, its choices, and their effects.
 
 `src/lib/game/state.ts` holds the save: decisions, bids, injuries, season stats, the weekly sim of every game,
-committee re-ranking, playoff odds, the field and bracket (12 or 24 teams by season), and program history. Season 1
-covers weeks 11–12; later seasons weeks 1–12; then the playoff rounds. All four are plain TypeScript with no React, and have tests in
+committee re-ranking, playoff odds, the field and bracket (12 or 24 teams by season), and program history. A new
+dynasty covers weeks 1–12 every season (the quick start's Season 1 covers weeks 11–12); then the playoff rounds. All four are plain TypeScript with no React, and have tests in
 `src/lib/game/__tests__`.
 
 ## Scripts

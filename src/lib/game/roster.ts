@@ -137,14 +137,42 @@ const BASELINE = (() => {
   return { off: weighted(st, OFF_WEIGHTS), def: weighted(st, DEF_WEIGHTS) };
 })();
 
-/** Team ratings for the sim. The default healthy lineup equals the team's base rating. */
-export function teamRatings(team: TeamId, inp: LineupInput) {
+/**
+ * The user's team ratings for the sim, from its starters. Calibrated on the Lone Star template roster
+ * (84 offense / 81 defense); generated rosters are built to land on their program's rating.
+ */
+export function teamRatings(_team: TeamId, inp: LineupInput) {
   const st = starters(inp);
   return {
-    off: TEAMS[team].off + (weighted(st, OFF_WEIGHTS) - BASELINE.off) * SCALE,
-    def: TEAMS[team].def + (weighted(st, DEF_WEIGHTS) - BASELINE.def) * SCALE,
+    off: 84 + (weighted(st, OFF_WEIGHTS) - BASELINE.off) * SCALE,
+    def: 81 + (weighted(st, DEF_WEIGHTS) - BASELINE.def) * SCALE,
   };
 }
+
+/**
+ * A full roster for any program: the Lone Star template, re-rated so the team lands on its own
+ * offense/defense rating, with new names, numbers and hometowns. Lone Star keeps its real roster.
+ */
+export function rosterFor(team: TeamId, seed: number): Player[] {
+  if (team === "stallions") return ROSTER;
+  const shift = { off: (TEAMS[team].off - 84) / SCALE, def: (TEAMS[team].def - 81) / SCALE };
+  const rng = makeRng(hashSeed("roster", team, seed));
+  const used = new Set<number>();
+  return ROSTER.map((tpl, i) => {
+    const side = SIDE[tpl.pos] === "def" ? shift.def : SIDE[tpl.pos] === "off" ? shift.off : (shift.off + shift.def) / 2;
+    const ovr = Math.max(55, Math.min(97, Math.round(tpl.ovr + side + (rng() - 0.5) * 4)));
+    let num = tpl.num;
+    while (used.has(num)) num = 1 + (num % 99);
+    used.add(num);
+    const first = FIRST_NAMES[Math.floor(rng() * FIRST_NAMES.length)];
+    const last = LAST_NAMES[Math.floor(rng() * LAST_NAMES.length)];
+    return { ...tpl, id: `${team}-${i}`, name: `${first} ${last}`, num, ovr, nil: Math.round((tpl.nil * (0.6 + rng() * 0.8)) / 5_000) * 5_000, hometown: HOMETOWNS[Math.floor(rng() * HOMETOWNS.length)] };
+  });
+}
+
+const FIRST_NAMES = ["Aaron", "Bryce", "Carter", "Dominic", "Elijah", "Gabe", "Hudson", "Isaiah", "Jordan", "Kaden", "Levi", "Malik", "Nolan", "Parker", "Quinn", "Roman", "Sawyer", "Trey", "Vance", "Wesley", "Xavier", "Zach", "Ty", "Deshawn", "Marcus", "Andre", "Cole", "Jace", "Reggie", "Tanner"];
+const LAST_NAMES = ["Adams", "Baker", "Coleman", "Dixon", "Evans", "Foster", "Graham", "Harris", "Irving", "Jackson", "King", "Lewis", "Mitchell", "Nelson", "Owens", "Patterson", "Reed", "Simmons", "Turner", "Underwood", "Vaughn", "Walker", "Young", "Brooks", "Carter", "Hayes", "Price", "Ross", "Ward", "Wells"];
+const HOMETOWNS = ["Atlanta, GA", "Miami, FL", "Houston, TX", "Charlotte, NC", "Memphis, TN", "Phoenix, AZ", "Denver, CO", "Columbus, OH", "Birmingham, AL", "Jackson, MS", "Tulsa, OK", "Omaha, NE", "Richmond, VA", "Mobile, AL", "Fresno, CA"];
 
 /** Change in team rating if a starter is swapped for the next man up. Used for mid-game injuries. */
 export function ratingLossWithout(team: TeamId, inp: LineupInput, id: string) {

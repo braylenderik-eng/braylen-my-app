@@ -1,7 +1,7 @@
 // Multi-season helpers: schedules, preseason rankings, opponent rating drift and the
 // offseason (graduation, progression, incoming freshmen). Pure functions.
 
-import { TEAMS, USER_TEAM, type Fixture, type TeamId } from "./data";
+import { TEAMS, type Fixture, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
 import { POS_ORDER, STARTERS, type Player, type Pos, type Year } from "./roster";
 
@@ -46,7 +46,6 @@ export function generateSchedule(seed: number): Record<number, Fixture[]> {
         home,
         away,
         kickoff: KICKOFFS[Math.floor(rng() * KICKOFFS.length)],
-        venue: home === USER_TEAM ? "Stallion Field" : undefined,
         label: conf ? "Conference game" : undefined,
       });
     }
@@ -59,11 +58,11 @@ export function generateSchedule(seed: number): Record<number, Fixture[]> {
 // ---- Opponents ------------------------------------------------------------------
 
 /** Each offseason every other team drifts a little, pulled gently toward the league middle. */
-export function driftRatings(prev: Ratings, seed: number, season: number): Ratings {
+export function driftRatings(prev: Ratings, seed: number, season: number, team: TeamId = "stallions"): Ratings {
   const rng = makeRng(hashSeed("drift", seed, season));
   const next = { ...prev };
   for (const id of ALL_TEAMS) {
-    if (id === USER_TEAM) continue;
+    if (id === team) continue;
     const step = (x: number) => {
       const pull = (82 - x) * 0.15;
       return Math.round(Math.max(66, Math.min(93, x + pull + (rng() - 0.5) * 6)));

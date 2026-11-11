@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { TEAMS, USER_TEAM, type TeamId } from "@/lib/game/data";
+import { TEAMS, type TeamId } from "@/lib/game/data";
 import { winProbability } from "@/lib/game/sim";
 import {
   champion, currentUserFixture, dateLabel, isPlayoffs, playoffFixtures, playoffFormat, roundOf, seasonOver, seedOf, standingOf, userEliminated, weekLabel,
@@ -15,6 +15,7 @@ import { ButtonLink, cx, PageHeader, Panel, Stat, Tag, TeamBadge } from "../ui";
 import { UnitCard, unitEdges } from "../UnitMatchups";
 import { HistoryTable } from "./SimScreen";
 import { OffseasonHub } from "../OffseasonHub";
+import { DEFENSE_STYLES, OFFENSE_STYLES } from "@/lib/game/program";
 import { ScenarioCards } from "../ScenarioCards";
 
 export function Dashboard() {
@@ -32,6 +33,7 @@ export function Dashboard() {
 
       {state.unseenRecap && <LastResultBanner state={state} />}
       <Alerts state={state} />
+      {state.coach && !state.offseason && <ProgramCard state={state} />}
       {state.season > 1 && state.recaps.length === 0 && <NewSeason state={state} />}
 
       {state.offseason ? (
@@ -78,11 +80,11 @@ function LastResultBanner({ state }: { state: GameState }) {
   let tone: "good" | "accent" | "muted" = "muted";
   let tag = "Final";
   if (r.game) {
-    const home = r.game.home === USER_TEAM;
+    const home = r.game.home === state.team;
     const us = home ? r.game.homeScore : r.game.awayScore;
     const them = home ? r.game.awayScore : r.game.homeScore;
     const opp = home ? r.game.away : r.game.home;
-    body = `${weekLabel(r.week, state.season)}: Stallions ${us}, ${TEAMS[opp].name} ${them}`;
+    body = `${weekLabel(r.week, state.season)}: ${TEAMS[state.team].name} ${us}, ${TEAMS[opp].name} ${them}`;
     tone = us > them ? "good" : "accent";
     tag = us > them ? "Final · W" : "Final · L";
   }
@@ -101,12 +103,12 @@ function Preview({ state }: { state: GameState }) {
   const others = useMemo(() => {
     const list = playoffs ? playoffFixtures(state, roundOf(state.week)).filter((f) => f !== null) : (state.schedule[state.week] ?? []);
     return list
-      .filter((f) => f.home !== USER_TEAM && f.away !== USER_TEAM)
+      .filter((f) => f.home !== state.team && f.away !== state.team)
       .map((f) => ({ home: f.home, away: f.away, kickoff: f.kickoff, p: winProbability(f.home, f.away, f.home, { neutral: playoffs && roundOf(state.week) > 0, ratings: state.teamRatings }, 250) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.season, state.week, state.playoff?.games.length]);
   if (!m) return null;
-  const me = standingOf(state, USER_TEAM)!;
+  const me = standingOf(state, state.team)!;
   const edges = unitEdges(state, m.us, m.them).slice(0, 6);
   const upsets = others.filter((g) => g.p > 0.35 && g.p < 0.65);
   const rankOf = (id: TeamId) => standingOf(state, id)?.rank ?? 99;
@@ -151,7 +153,7 @@ function Preview({ state }: { state: GameState }) {
       ) : (
         <Panel kicker="The path" title="Road to the title" className="lg:col-span-4">
           <div className="grid grid-cols-2 gap-2">
-            <Stat label="Seed" value={seedOf(state, USER_TEAM) ?? "—"} tone="gold" />
+            <Stat label="Seed" value={seedOf(state, state.team) ?? "—"} tone="gold" />
             <Stat label="Win this round" value={pct(m.winProb)} />
           </div>
           <ol className="mt-4 space-y-1.5 text-sm">
@@ -236,10 +238,34 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 /** Start of a new season: what changed over the offseason, and the program's history. */
+/** Your coach, schemes and what the administration expects this season. */
+function ProgramCard({ state }: { state: GameState }) {
+  const coach = state.coach!;
+  const me = standingOf(state, state.team)!;
+  const gamesLeft = state.schedule ? Object.keys(state.schedule).filter((w) => Number(w) >= state.week && (state.schedule[Number(w)] ?? []).some((f) => f.home === state.team || f.away === state.team)).length : 0;
+  const need = Math.max(0, state.program.winTarget - me.wins);
+  const pace = need === 0 ? "Target reached" : need > gamesLeft ? "Out of reach" : `${need} more win${need === 1 ? "" : "s"} needed`;
+  return (
+    <Panel kicker={`Head coach · ${coach.almaMater ? `${coach.almaMater} alum` : "First-year hire"}`} title={coach.name} className="mb-5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <Stat label="Program" value={state.program.tier} tone="gold" />
+        <Stat label="Win target" value={state.program.winTarget} />
+        <Stat label="Pace" value={pace} tone={need === 0 ? "good" : need > gamesLeft ? "bad" : undefined} />
+        <Stat label="Offense" value={OFFENSE_STYLES[coach.offense].name} />
+        <Stat label="Defense" value={DEFENSE_STYLES[coach.defense].name} />
+      </div>
+      <p className="mt-3 text-sm text-muted">
+        Calling your scheme&apos;s game plan gives a small edge. Meeting the win target grows next year&apos;s NIL budget; missing it badly
+        puts you on the hot seat.
+      </p>
+    </Panel>
+  );
+}
+
 function NewSeason({ state }: { state: GameState }) {
   const r = state.lastOffseason;
   if (!r) return null;
-  const me = standingOf(state, USER_TEAM)!;
+  const me = standingOf(state, state.team)!;
   const gains = [...r.progressed].sort((a, b) => b.to - b.from - (a.to - a.from)).slice(0, 4);
   return (
     <div className="mb-5 grid gap-5 lg:grid-cols-12">
@@ -273,16 +299,16 @@ function NewSeason({ state }: { state: GameState }) {
 
 /** No game this week: bye, eliminated, missed the field, or season over. */
 function SeasonStatus({ state }: { state: GameState }) {
-  const me = standingOf(state, USER_TEAM)!;
-  const seed = seedOf(state, USER_TEAM);
+  const me = standingOf(state, state.team)!;
+  const seed = seedOf(state, state.team);
   const champ = champion(state);
   const out = userEliminated(state);
-  const title = champ === USER_TEAM ? "National champions" : champ ? `${TEAMS[champ].name} win it all` : seed && !out ? `First-round bye · No. ${seed} seed` : seed ? "Season over" : "Left out of the field";
+  const title = champ === state.team ? "National champions" : champ ? `${TEAMS[champ].name} win it all` : seed && !out ? `First-round bye · No. ${seed} seed` : seed ? "Season over" : "Left out of the field";
   return (
     <div className="grid gap-5 lg:grid-cols-12">
       <Panel kicker={seasonOver(state) ? "Season complete" : "Playoffs"} title={title} className="lg:col-span-5">
         <div className="flex items-center gap-4">
-          <TeamBadge id={champ ?? USER_TEAM} size="lg" />
+          <TeamBadge id={champ ?? state.team} size="lg" />
           <div>
             <p className="font-display text-2xl font-bold">
               {me.wins}–{me.losses} · Final rank #{me.rank}
@@ -300,7 +326,7 @@ function SeasonStatus({ state }: { state: GameState }) {
             .filter((r) => r.game)
             .map((r) => {
               const g = r.game!;
-              const home = g.home === USER_TEAM;
+              const home = g.home === state.team;
               const us = home ? g.homeScore : g.awayScore;
               const them = home ? g.awayScore : g.homeScore;
               const opp = home ? g.away : g.home;

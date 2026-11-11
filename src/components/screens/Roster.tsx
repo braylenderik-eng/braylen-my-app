@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { USER_TEAM } from "@/lib/game/data";
 import { attributes, isAvailable, POS_LABEL, POS_ORDER, SIDE, STARTERS, starters, teamRatings, type Player, type Pos } from "@/lib/game/roster";
+import { TEAMS } from "@/lib/game/data";
 import { lineup, shortPositions, type GameState } from "@/lib/game/state";
 import { money } from "@/lib/format";
 import { useGame } from "../GameProvider";
@@ -12,7 +12,7 @@ export function Roster() {
   const { state } = useGame();
   const [open, setOpen] = useState<Player | null>(null);
   const inp = lineup(state);
-  const ratings = teamRatings(USER_TEAM, inp);
+  const ratings = teamRatings(state.team, inp);
   const st = starters(inp);
   const starterIds = new Set(Object.values(st).flat().map((p) => p.id));
   const active = state.players.filter((p) => p.yr !== "HS");
@@ -23,7 +23,7 @@ export function Roster() {
 
   return (
     <>
-      <PageHeader title="Roster" sub={`Lone Star Stallions · ${active.length} players · Depth chart`} />
+      <PageHeader title="Roster" sub={`${TEAMS[state.team].name} · ${active.length} players · Depth chart`} />
 
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Stat label="Offense" value={Math.round(ratings.off)} tone="gold" />

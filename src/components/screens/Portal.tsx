@@ -21,7 +21,7 @@ function PortalWatch() {
   const { state, dispatch } = useGame();
   const [query, setQuery] = useState("");
   const [scouted, setScouted] = useState<PortalPlayer | null>(null);
-  const list = state.season === 1 ? watchList() : [];
+  const list = state.season === 1 && !state.coach ? watchList() : [];
   const q = query.trim().toLowerCase();
   const rows = list.filter((p) => !q || [p.name, p.from, p.pos].some((x) => x.toLowerCase().includes(q)));
 
@@ -34,7 +34,7 @@ function PortalWatch() {
         expected to enter; you can bid once the window opens in the offseason, with next year&apos;s NIL budget.
       </div>
 
-      <Panel kicker="Expected to enter" title={state.season === 1 ? `${list.length} players on your radar` : "Watch list"} bodyClassName="p-0">
+      <Panel kicker="Expected to enter" title={list.length ? `${list.length} players on your radar` : "Watch list"} bodyClassName="p-0">
         {list.length > 0 && (
           <div className="border-b border-line p-3">
             <input

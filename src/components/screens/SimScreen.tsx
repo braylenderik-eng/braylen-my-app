@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { FINAL_WEEK, SCOUTING, TEAMS, USER_TEAM, type TeamId } from "@/lib/game/data";
+import { FINAL_WEEK, SCOUTING, TEAMS, type TeamId } from "@/lib/game/data";
 import type { DefensePlan, Drive, GameResult, OffensePlan, StatLine } from "@/lib/game/sim";
 import {
   champion, currentUserFixture, dateLabel, firstWeek, keyDates, isPlayoffs, playoffFormat, titleWeek, playoffField, playoffFixtures,
@@ -52,15 +52,15 @@ function WeekStrip({ state, selected, onSelect }: { state: GameState; selected: 
     let away = false;
     if (w <= FINAL_WEEK) {
       const f = scheduleFixture(state, w)!;
-      opp = f.home === USER_TEAM ? f.away : f.home;
-      away = f.home !== USER_TEAM;
+      opp = f.home === state.team ? f.away : f.home;
+      away = f.home !== state.team;
     } else if (recap?.game) {
-      opp = recap.game.home === USER_TEAM ? recap.game.away : recap.game.home;
+      opp = recap.game.home === state.team ? recap.game.away : recap.game.home;
     } else if (isCurrent) {
       const f = currentUserFixture(state);
-      if (f) opp = f.home === USER_TEAM ? f.away : f.home;
+      if (f) opp = f.home === state.team ? f.away : f.home;
     }
-    const result = recap?.game ? outcome(recap.game) : null;
+    const result = recap?.game ? outcome(recap.game, state.team) : null;
     const label = w <= FINAL_WEEK ? `W${w}` : playoffFormat(state.season).short[roundOf(w)];
     chips.push(
       <button
@@ -82,7 +82,7 @@ function WeekStrip({ state, selected, onSelect }: { state: GameState; selected: 
         ) : (
           w > FINAL_WEEK && (
             <span className="font-display text-xs text-dim">
-              {recap ? (roundOf(w) === 0 && (seedOf(state, USER_TEAM) ?? 99) <= 4 ? "Bye" : "—") : "TBD"}
+              {recap ? (roundOf(w) === 0 && (seedOf(state, state.team) ?? 99) <= 4 ? "Bye" : "—") : "TBD"}
             </span>
           )
         )}
@@ -104,8 +104,8 @@ function WeekStrip({ state, selected, onSelect }: { state: GameState; selected: 
   return <div className="scrollbar-none mb-5 flex gap-2 overflow-x-auto">{chips}</div>;
 }
 
-function outcome(g: GameResult) {
-  const home = g.home === USER_TEAM;
+function outcome(g: GameResult, team: TeamId) {
+  const home = g.home === team;
   const us = home ? g.homeScore : g.awayScore;
   const them = home ? g.awayScore : g.homeScore;
   return { won: us > them, us, them, opp: (home ? g.away : g.home) as TeamId };
@@ -128,7 +128,7 @@ const DEFENSE: { id: DefensePlan; name: string; tag: string }[] = [
 /** Hand-written scouting where we have it; a generated report from team ratings otherwise. */
 function scoutingFor(state: GameState, id: TeamId) {
   // Hand-written reports describe Season 1; after that, rosters have turned over.
-  const known = state.season === 1 ? SCOUTING[id] : undefined;
+  const known = state.season === 1 && !state.coach ? SCOUTING[id] : undefined;
   if (known) return known;
   const t = state.teamRatings[id];
   const offFirst = t.off >= t.def;
@@ -169,7 +169,7 @@ function GamePlan({ state }: { state: GameState }) {
     <div className="pb-28">
       <PageHeader
         title="Game plan"
-        sub={`Season ${state.season} · ${weekLabel(state.week, state.season)} · ${dateLabel(state.week, state.season)} · ${m.neutral ? "Neutral site" : m.fixture.home === USER_TEAM ? "Home game" : "Road game"}`}
+        sub={`Season ${state.season} · ${weekLabel(state.week, state.season)} · ${dateLabel(state.week, state.season)} · ${m.neutral ? "Neutral site" : m.fixture.home === state.team ? "Home game" : "Road game"}`}
       />
       <SelectionBanner state={state} />
       <ScenarioCards state={state} compact />
@@ -266,7 +266,7 @@ function Availability({ state, them }: { state: GameState; them: TeamId }) {
           <p className="mt-1 text-sm">Full strength.</p>
         </div>
         <div>
-          <p className="font-display text-xs tracking-widest text-muted">{TEAMS[USER_TEAM].name}</p>
+          <p className="font-display text-xs tracking-widest text-muted">{TEAMS[state.team].name}</p>
           {hurt.length === 0 && <p className="mt-1 text-sm">Full strength.</p>}
           <ul className="mt-2 space-y-3">
             {hurt.map((p) => {
@@ -402,7 +402,7 @@ function SimBar({
 /** Shown at the start of the playoffs, before any game is played. */
 function SelectionBanner({ state }: { state: GameState }) {
   if (!state.playoff || state.playoff.games.length > 0 || !isPlayoffs(state)) return null;
-  const seed = seedOf(state, USER_TEAM);
+  const seed = seedOf(state, state.team);
   return (
     <div
       className={cx(
@@ -415,7 +415,7 @@ function SelectionBanner({ state }: { state: GameState }) {
         {seed ? `You're in — No. ${seed} seed${seed <= playoffFormat(state.season).byes ? " · first-round bye" : ""}` : `Left out of the ${playoffFormat(state.season).size}-team field`}
       </p>
       <p className="mt-1 text-sm text-muted">
-        {state.playoff.autoBids?.includes(USER_TEAM)
+        {state.playoff.autoBids?.includes(state.team)
           ? "Automatic bid as a top-five conference champion. "
           : seed
             ? "At-large bid. "
@@ -432,7 +432,7 @@ function PlayoffWatch({ state }: { state: GameState }) {
   const { dispatch } = useGame();
   const [simming, setSimming] = useState(false);
   const round = roundOf(state.week);
-  const seed = seedOf(state, USER_TEAM);
+  const seed = seedOf(state, state.team);
   const out = userEliminated(state);
   const sim = () => {
     setSimming(true);
@@ -459,7 +459,7 @@ function PlayoffWatch({ state }: { state: GameState }) {
           ? `You have a first-round bye as the No. ${seed} seed. Sim the round to see who you face in the quarterfinals.`
           : seed
             ? "Your season is over. Sim the remaining rounds to crown a champion."
-            : "The Stallions missed the field. Sim the rounds to watch the playoff play out."}
+            : `The ${TEAMS[state.team].name} missed the field. Sim the rounds to watch the playoff play out.`}
       </p>
       <Bracket state={state} />
     </div>
@@ -509,7 +509,7 @@ function BracketGame({ state, f, g, round }: { state: GameState; f: ReturnType<t
         <div key={id} className={cx("flex items-center gap-2 px-2.5 py-1.5", winner && winner !== id && "opacity-45")}>
           <span className="font-display tabular w-4 text-xs text-dim">{seedOf(state, id)}</span>
           <TeamBadge id={id} size="sm" />
-          <span className={cx("flex-1 truncate text-sm", id === USER_TEAM && "font-bold text-accent-hi", winner === id && "font-semibold")}>
+          <span className={cx("flex-1 truncate text-sm", id === state.team && "font-bold text-accent-hi", winner === id && "font-semibold")}>
             {TEAMS[id].name}
             {state.playoff?.autoBids?.includes(id) && <span className="font-display ml-1.5 text-[9px] tracking-widest text-gold" title="Conference champion (automatic bid)">AQ</span>}
           </span>
@@ -522,7 +522,7 @@ function BracketGame({ state, f, g, round }: { state: GameState; f: ReturnType<t
 
 function SeasonComplete({ state }: { state: GameState }) {
   const champ = champion(state);
-  const won = champ === USER_TEAM;
+  const won = champ === state.team;
   return (
     <div>
       <PageHeader title={won ? "National champions" : "Season complete"} sub={`Season ${state.season} · Final`} />
@@ -538,7 +538,7 @@ function SeasonComplete({ state }: { state: GameState }) {
             <p className="font-display text-xs tracking-[0.2em] text-gold">National champion</p>
             <p className="font-display text-3xl leading-tight font-bold sm:text-5xl">{TEAMS[champ].name}</p>
             <p className="mt-1 text-muted">
-              {won ? "The Stallions finish what they started. Now go do it again." : "The offseason starts below."}
+              {won ? `The ${TEAMS[state.team].name} finish what they started. Now go do it again.` : "The offseason starts below."}
             </p>
           </div>
         </div>
@@ -581,6 +581,7 @@ function Offseason({ state }: { state: GameState }) {
 }
 
 export function HistoryTable({ rows }: { rows: GameState["history"] }) {
+  const { state } = useGame();
   if (!rows.length) return <p className="text-sm text-muted">No completed seasons yet.</p>;
   return (
     <ul className="space-y-2">
@@ -596,7 +597,12 @@ export function HistoryTable({ rows }: { rows: GameState["history"] }) {
             {h.finish}
             {h.seed ? ` · No. ${h.seed} seed` : ""}
           </p>
-          {h.champion && h.champion !== USER_TEAM && <p className="text-xs text-dim">Champion: {TEAMS[h.champion].name}</p>}
+          {h.expectation && (
+            <p className={cx("text-xs", h.expectation === "Hot seat" ? "text-bad" : h.expectation === "Fell short" ? "text-dim" : "text-good")}>
+              {h.expectation} (target {h.target} wins)
+            </p>
+          )}
+          {h.champion && h.champion !== state.team && <p className="text-xs text-dim">Champion: {TEAMS[h.champion].name}</p>}
         </li>
       ))}
     </ul>
@@ -609,7 +615,7 @@ function Recap({ recap, fresh, onBack }: { recap: WeekRecap; fresh: boolean; onB
   const { state, dispatch } = useGame();
   const router = useRouter();
   const g = recap.game;
-  const o = g ? outcome(g) : null;
+  const o = g ? outcome(g, state.team) : null;
   const moved = recap.rankBefore - recap.rankAfter;
   const regular = recap.week <= FINAL_WEEK;
 
@@ -763,6 +769,7 @@ function ScoreGrid({ scores }: { scores: Score[] }) {
 }
 
 function Scoreboard({ g }: { g: GameResult }) {
+  const { state } = useGame();
   const rows = [
     { id: g.away, t: g.totals.away, pts: g.awayScore },
     { id: g.home, t: g.totals.home, pts: g.homeScore },
@@ -793,7 +800,7 @@ function Scoreboard({ g }: { g: GameResult }) {
                       <TeamBadge id={r.id} />
                       <span className={cx("font-display text-lg sm:text-xl", won ? "font-bold" : "text-muted")}>
                         {TEAMS[r.id].name}
-                        {r.id === USER_TEAM && <span className="ml-2 text-xs text-accent-hi">You</span>}
+                        {r.id === state.team && <span className="ml-2 text-xs text-accent-hi">You</span>}
                       </span>
                     </div>
                   </td>
@@ -815,6 +822,7 @@ function Scoreboard({ g }: { g: GameResult }) {
 }
 
 function ScoringSummary({ drives, g }: { drives: Drive[]; g: GameResult }) {
+  const { state } = useGame();
   const scoring = drives.filter((d) => d.result === "TD" || d.result === "FG" || d.result === "INT" || d.result === "FUM");
   const quarters = [...new Set(scoring.map((d) => d.quarter))];
   return (
@@ -830,7 +838,7 @@ function ScoringSummary({ drives, g }: { drives: Drive[]; g: GameResult }) {
                 return (
                   <li key={i} className="flex items-center gap-3 px-3 py-2">
                     <TeamBadge id={d.team} size="sm" />
-                    <Tag tone={!score ? "gold" : d.team === USER_TEAM ? "accent" : "muted"}>{d.result === "FUM" ? "TO" : d.result}</Tag>
+                    <Tag tone={!score ? "gold" : d.team === state.team ? "accent" : "muted"}>{d.result === "FUM" ? "TO" : d.result}</Tag>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm">{d.text}</p>
                       <p className="text-xs text-dim">
@@ -853,16 +861,17 @@ function ScoringSummary({ drives, g }: { drives: Drive[]; g: GameResult }) {
 }
 
 function Performers({ g }: { g: GameResult }) {
+  const { state } = useGame();
   const by = (team: TeamId, key: keyof StatLine) =>
     g.stats.filter((s) => s.team === team && (s[key] as number | undefined) !== undefined).sort((a, b) => ((b[key] as number) ?? 0) - ((a[key] as number) ?? 0))[0];
-  const opp = g.home === USER_TEAM ? g.away : g.home;
+  const opp = g.home === state.team ? g.away : g.home;
   const cards = [
-    { label: "Passing", s: by(USER_TEAM, "passYds"), line: (s: StatLine) => `${s.cmp}/${s.att}, ${s.passYds} yds, ${s.passTd ?? 0} TD, ${s.int ?? 0} INT` },
-    { label: "Rushing", s: by(USER_TEAM, "rushYds"), line: (s: StatLine) => `${s.car} car, ${s.rushYds} yds, ${s.rushTd ?? 0} TD` },
-    { label: "Receiving", s: by(USER_TEAM, "recYds"), line: (s: StatLine) => `${s.rec} rec, ${s.recYds} yds, ${s.recTd ?? 0} TD` },
+    { label: "Passing", s: by(state.team, "passYds"), line: (s: StatLine) => `${s.cmp}/${s.att}, ${s.passYds} yds, ${s.passTd ?? 0} TD, ${s.int ?? 0} INT` },
+    { label: "Rushing", s: by(state.team, "rushYds"), line: (s: StatLine) => `${s.car} car, ${s.rushYds} yds, ${s.rushTd ?? 0} TD` },
+    { label: "Receiving", s: by(state.team, "recYds"), line: (s: StatLine) => `${s.rec} rec, ${s.recYds} yds, ${s.recTd ?? 0} TD` },
     {
       label: "Defense",
-      s: g.stats.filter((s) => s.team === USER_TEAM && (s.sacks || s.takeaways)).sort((a, b) => (b.sacks ?? 0) + (b.takeaways ?? 0) * 2 - (a.sacks ?? 0) - (a.takeaways ?? 0) * 2)[0],
+      s: g.stats.filter((s) => s.team === state.team && (s.sacks || s.takeaways)).sort((a, b) => (b.sacks ?? 0) + (b.takeaways ?? 0) * 2 - (a.sacks ?? 0) - (a.takeaways ?? 0) * 2)[0],
       line: (s: StatLine) => [s.sacks && `${s.sacks} sack${s.sacks > 1 ? "s" : ""}`, s.takeaways && `${s.takeaways} takeaway${s.takeaways > 1 ? "s" : ""}`].filter(Boolean).join(", "),
     },
     { label: "Their passer", s: by(opp, "passYds"), line: (s: StatLine) => `${s.cmp}/${s.att}, ${s.passYds} yds, ${s.passTd ?? 0} TD, ${s.int ?? 0} INT` },
@@ -890,6 +899,7 @@ function Performers({ g }: { g: GameResult }) {
 }
 
 function TeamStats({ g }: { g: GameResult }) {
+  const { state } = useGame();
   const rows: [string, number, number, boolean?][] = [
     ["Passing yds", g.totals.away.passYds, g.totals.home.passYds],
     ["Rushing yds", g.totals.away.rushYds, g.totals.home.rushYds],
@@ -915,8 +925,8 @@ function TeamStats({ g }: { g: GameResult }) {
                 <span className={hBetter ? "font-bold" : "text-muted"}>{h}</span>
               </div>
               <div className="mt-1 flex h-1.5 gap-0.5 overflow-hidden rounded-full bg-line">
-                <div style={{ width: `${(a / total) * 100}%`, background: g.away === USER_TEAM ? "var(--accent)" : "#56607d" }} />
-                <div style={{ width: `${(h / total) * 100}%`, background: g.home === USER_TEAM ? "var(--accent)" : "#56607d" }} />
+                <div style={{ width: `${(a / total) * 100}%`, background: g.away === state.team ? "var(--accent)" : "#56607d" }} />
+                <div style={{ width: `${(h / total) * 100}%`, background: g.home === state.team ? "var(--accent)" : "#56607d" }} />
               </div>
             </li>
           );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { TEAMS, USER_TEAM, type TeamId } from "@/lib/game/data";
+import { TEAMS, type TeamId } from "@/lib/game/data";
 import {
   hashSeed, liveWinProbability, playGame, type Answer, type Decision, type DefensePlan, type Drive, type GameEvent, type GameResult,
   type OffensePlan,
@@ -93,7 +93,7 @@ export function LiveGame({ state, m, onExit }: { state: GameState; m: MatchupInf
   const lastDrive = feed[feed.length - 1];
   const homeScore = result?.homeScore ?? lastDrive?.homeScore ?? 0;
   const awayScore = result?.awayScore ?? lastDrive?.awayScore ?? 0;
-  const usHome = fixture.home === USER_TEAM;
+  const usHome = fixture.home === state.team;
   const margin = (usHome ? homeScore - awayScore : awayScore - homeScore) as number;
   const quarter = lastDrive?.quarter ?? 1;
   const fractionLeft = result ? 0 : progress.total ? progress.remaining / progress.total : 1;
@@ -120,7 +120,7 @@ export function LiveGame({ state, m, onExit }: { state: GameState; m: MatchupInf
                   {TEAMS[id].name}
                   {ball === id && <span className="ml-1.5 text-gold" aria-label="has the ball">●</span>}
                 </p>
-                <p className="font-display text-[10px] tracking-widest text-muted">{id === USER_TEAM ? "You" : "Opponent"}</p>
+                <p className="font-display text-[10px] tracking-widest text-muted">{id === state.team ? "You" : "Opponent"}</p>
               </div>
               <span className="font-display tabular text-4xl font-bold sm:text-5xl">{i === 0 ? awayScore : homeScore}</span>
             </div>
@@ -290,6 +290,7 @@ function Option({ onClick, title, odds, note }: { onClick: () => void; title: st
 }
 
 function Feed({ feed }: { feed: Drive[] }) {
+  const { state } = useGame();
   if (!feed.length) return <p className="font-display py-10 text-center tracking-widest text-muted">Kickoff…</p>;
   const groups: { q: number; drives: Drive[] }[] = [];
   for (const d of [...feed].reverse()) {
@@ -307,9 +308,9 @@ function Feed({ feed }: { feed: Drive[] }) {
               const scored = d.result === "TD" || d.result === "FG";
               const turnover = d.result === "INT" || d.result === "FUM" || d.result === "DOWNS";
               return (
-                <li key={`${d.quarter}-${i}-${d.homeScore}-${d.awayScore}`} className={cx("flex items-center gap-3 px-3 py-2", scored && d.team === USER_TEAM && "bg-accent/10")}>
+                <li key={`${d.quarter}-${i}-${d.homeScore}-${d.awayScore}`} className={cx("flex items-center gap-3 px-3 py-2", scored && d.team === state.team && "bg-accent/10")}>
                   <TeamBadge id={d.team} size="sm" />
-                  <Tag tone={scored ? (d.team === USER_TEAM ? "accent" : "muted") : turnover ? "gold" : "muted"}>{d.result === "FUM" ? "TO" : d.result}</Tag>
+                  <Tag tone={scored ? (d.team === state.team ? "accent" : "muted") : turnover ? "gold" : "muted"}>{d.result === "FUM" ? "TO" : d.result}</Tag>
                   <div className="min-w-0 flex-1">
                     <p className={cx("text-sm", scored ? "font-semibold" : "text-muted")}>{d.text}</p>
                     <p className="text-xs text-dim">

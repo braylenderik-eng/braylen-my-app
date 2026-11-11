@@ -3,7 +3,7 @@
 // January; there is no spring or in-season window.) Recruiting happens during the season — see
 // recruiting.ts. Pure functions.
 
-import { PORTAL, TEAMS, USER_TEAM, type TeamId } from "./data";
+import { PORTAL, TEAMS, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
 import { POS_ORDER, STARTERS, type Player, type Pos } from "./roster";
 import { ROSTER_MAX, needWeights, weightedPos } from "./recruiting";
@@ -68,7 +68,7 @@ function watchListTransfers(): Transfer[] {
  * Open the January window after graduation and development: which backups want out, and who is
  * in the portal. In the first offseason the pool starts with the players you watched in Season 1.
  */
-export function openOffseason(players: Player[], depth: Record<Pos, string[]>, seed: number, season: number): OffseasonState {
+export function openOffseason(players: Player[], depth: Record<Pos, string[]>, seed: number, season: number, team: TeamId = "stallions", watchList = season === 2): OffseasonState {
   const rng = makeRng(hashSeed("offseason-open", seed, season));
   const byId = new Map(players.map((p) => [p.id, p]));
 
@@ -85,8 +85,8 @@ export function openOffseason(players: Player[], depth: Record<Pos, string[]>, s
   }
 
   const weights = needWeights(players);
-  const others = ALL_TEAMS.filter((t) => t !== USER_TEAM);
-  const carried = season === 2 ? watchListTransfers() : [];
+  const others = ALL_TEAMS.filter((t) => t !== team);
+  const carried = watchList ? watchListTransfers().filter((t) => t.from !== team) : [];
   const generated: Transfer[] = Array.from({ length: 14 - carried.length }, (_, i) => {
     const who = makePerson(["transfer", seed, season, i]);
     const r = who.rng;

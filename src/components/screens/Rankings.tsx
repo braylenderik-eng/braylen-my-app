@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { TEAMS, USER_TEAM, isPowerConf } from "@/lib/game/data";
+import { TEAMS, isPowerConf } from "@/lib/game/data";
 import { playoffFormat, playoffOdds, regularSeasonOver, scheduleFixture, selectField, standingOf } from "@/lib/game/state";
 import { pct, signed } from "@/lib/format";
 import { useGame } from "../GameProvider";
@@ -9,19 +9,19 @@ import { cx, PageHeader, Panel, Stat, Tag, TeamBadge } from "../ui";
 
 export function Rankings() {
   const { state } = useGame();
-  const me = standingOf(state, USER_TEAM)!;
+  const me = standingOf(state, state.team)!;
   const over = regularSeasonOver(state);
   const fmt = playoffFormat(state.season);
   const odds = useMemo(() => playoffOdds(state), [state]);
   const next = scheduleFixture(state, state.week);
-  const opp = next ? (next.home === USER_TEAM ? next.away : next.home) : null;
+  const opp = next ? (next.home === state.team ? next.away : next.home) : null;
 
   // The field as it would be picked today (or the actual field once it's set).
   const field = state.playoff ?? selectField(state.standings, state.season);
   const seedOf = new Map(field.seeds.map((id, i) => [id, i + 1]));
   const auto = new Set(field.autoBids ?? []);
-  const rows = state.standings.filter((t) => t.rank <= 25 || t.id === USER_TEAM || seedOf.has(t.id));
-  const mySeed = seedOf.get(USER_TEAM);
+  const rows = state.standings.filter((t) => t.rank <= 25 || t.id === state.team || seedOf.has(t.id));
+  const mySeed = seedOf.get(state.team);
 
   return (
     <>
@@ -58,15 +58,15 @@ export function Rankings() {
               {rows.map((t) => {
                 const chg = t.prevRank - t.rank;
                 const seed = seedOf.get(t.id);
-                const status = t.id === USER_TEAM ? "You" : t.id === opp ? "Your next opp" : null;
+                const status = t.id === state.team ? "You" : t.id === opp ? "Your next opp" : null;
                 return (
-                  <tr key={t.id} className={cx("border-b border-line/60 last:border-0", t.id === USER_TEAM && "bg-accent/10", !seed && "opacity-70")}>
+                  <tr key={t.id} className={cx("border-b border-line/60 last:border-0", t.id === state.team && "bg-accent/10", !seed && "opacity-70")}>
                     <td className={cx("font-display tabular px-4 py-2.5 text-lg font-bold", seed && seed <= fmt.byes ? "text-gold" : seed ? "text-text" : "text-dim")}>{t.rank}</td>
                     <td className="py-2.5">
                       <div className="flex items-center gap-3">
                         <TeamBadge id={t.id} size="sm" />
                         <div className="min-w-0">
-                          <p className={cx("truncate font-semibold", t.id === USER_TEAM && "text-accent-hi")}>
+                          <p className={cx("truncate font-semibold", t.id === state.team && "text-accent-hi")}>
                             {TEAMS[t.id].name}
                             {auto.has(t.id) && <span className="font-display ml-1.5 text-[10px] tracking-widest text-gold" title="Automatic bid">AQ</span>}
                           </p>
@@ -76,7 +76,7 @@ export function Rankings() {
                             {status && (
                               <>
                                 {" · "}
-                                <span className={t.id === USER_TEAM ? "text-accent-hi" : ""}>{status}</span>
+                                <span className={t.id === state.team ? "text-accent-hi" : ""}>{status}</span>
                               </>
                             )}
                           </p>

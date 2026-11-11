@@ -1,6 +1,7 @@
 "use client";
 
 import { type PressChoice } from "@/lib/game/state";
+import { TEAMS } from "@/lib/game/data";
 import { money } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { cx, PageHeader, Panel, Stat, Tag } from "../ui";
@@ -33,7 +34,7 @@ export function News() {
 
   return (
     <>
-      <PageHeader title="News & press" sub={`Season ${state.season} · Stallions desk · the wire`} />
+      <PageHeader title="News & press" sub={`Season ${state.season} · ${TEAMS[state.team].short} desk · the wire`} />
       <div className="grid gap-5 lg:grid-cols-12">
         <Panel kicker="Latest" title="Headlines" className="lg:col-span-7" bodyClassName="p-0">
           <ul className="divide-y divide-line/60">

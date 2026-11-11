@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { TEAMS, USER_TEAM, type Fixture, type TeamId } from "@/lib/game/data";
+import { TEAMS, type Fixture, type TeamId } from "@/lib/game/data";
 import { hashSeed, simulateGame } from "@/lib/game/sim";
 import { currentUserFixture, isPlayoffs, playoffOdds, seedOf, standingOf, userSimOptions, type GameState } from "@/lib/game/state";
 import { pct, spreadFor } from "@/lib/format";
@@ -29,7 +29,7 @@ export function useMatchup(state: GameState): MatchupInfo | null {
     if (!fixture) return null;
     const opts = userSimOptions(state);
     const neutral = (fixture as { neutral?: boolean }).neutral ?? false;
-    const home = fixture.home === USER_TEAM;
+    const home = fixture.home === state.team;
     const them = home ? fixture.away : fixture.home;
     const runs = 500;
     let wins = 0;
@@ -44,7 +44,7 @@ export function useMatchup(state: GameState): MatchupInfo | null {
     const winProb = wins / runs;
     return {
       fixture,
-      us: USER_TEAM,
+      us: state.team,
       them,
       home,
       neutral,

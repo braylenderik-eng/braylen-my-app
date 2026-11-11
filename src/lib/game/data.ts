@@ -24,6 +24,7 @@ export interface Team {
   ranked: boolean; // in the Season 1 committee table
 }
 
+/** The classic start (Lone Star, Week 11). New dynasties pick any team; see state.team. */
 export const USER_TEAM: TeamId = "stallions";
 
 /** Four "Power" conferences of eight; two smaller conferences of four (the game's Group of Six). */

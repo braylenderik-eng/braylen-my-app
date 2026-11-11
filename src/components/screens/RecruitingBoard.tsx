@@ -9,7 +9,7 @@ import { money, pct } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { Button, cx, Panel, Stat, Tag } from "../ui";
 
-type Filter = "All" | "Needs" | "Offered" | 2 | 3 | 4 | 5;
+type Filter = "All" | "Needs" | "Fit" | "Offered" | 2 | 3 | 4 | 5;
 
 /** Positions short of a starter plus a backup next season (seniors counted as gone). */
 export function nextYearNeeds(state: GameState): Pos[] {
@@ -28,7 +28,7 @@ export function RecruitingBoard({ state }: { state: GameState }) {
   const active = !rec.signed && state.week <= 12;
 
   const rows = rec.board
-    .filter((p) => (filter === "All" ? true : filter === "Needs" ? needs.includes(p.pos) : filter === "Offered" ? p.offered : p.stars === filter))
+    .filter((p) => (filter === "All" ? true : filter === "Needs" ? needs.includes(p.pos) : filter === "Fit" ? !!p.fit : filter === "Offered" ? p.offered : p.stars === filter))
     .sort((a, b) => b.stars - a.stars || b.pot - a.pot);
   const offers = rec.board.filter((p) => p.offered && p.status === "open").length;
   const signed = rec.board.filter((p) => p.status === "signed");
@@ -61,7 +61,7 @@ export function RecruitingBoard({ state }: { state: GameState }) {
       )}
 
       <div className="flex flex-wrap gap-2 border-y border-line p-3">
-        {(["All", "Needs", "Offered", 5, 4, 3, 2] as Filter[]).map((f) => (
+        {(["All", "Needs", ...(state.coach ? ["Fit"] : []), "Offered", 5, 4, 3, 2] as Filter[]).map((f) => (
           <button
             key={String(f)}
             onClick={() => setFilter(f)}
@@ -90,7 +90,9 @@ function ProspectRow({ p, state, needs, spots, active }: { p: Prospect; state: G
   return (
     <li className={cx("flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3", p.status === "signed" && "bg-good/5", p.status === "lost" && "opacity-50")}>
       <div className="w-56 min-w-0">
-        <p className="font-display text-xs tracking-wider text-gold">{"★".repeat(p.stars)}</p>
+        <p className="font-display text-xs tracking-wider text-gold">
+          {"★".repeat(p.stars)} {p.fit && <span className="ml-1"><Tag tone="accent">Scheme fit</Tag></span>}
+        </p>
         <p className="truncate font-semibold">{p.name}</p>
         <p className="text-xs text-muted">
           <span className={cx(needs.includes(p.pos) && "text-accent-hi")}>{POS_LABEL[p.pos]}</span> · {p.hometown}

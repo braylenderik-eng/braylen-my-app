@@ -4,7 +4,7 @@
 // signing period, right after the last regular-season week) each offered prospect signs with you or
 // his top rival. Signees enroll in the offseason. Pure functions.
 
-import { TEAMS, USER_TEAM, type TeamId } from "./data";
+import { TEAMS, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
 import { POS_ORDER, STARTERS, type Player, type Pos } from "./roster";
 import { ALL_TEAMS, freeNumber, makePerson } from "./season";
@@ -31,6 +31,7 @@ export interface Prospect {
   offered: boolean;
   pitchesThisWeek: number;
   status: "open" | "signed" | "lost";
+  fit?: boolean; // fits your offensive or defensive scheme
 }
 
 export interface RecruitingState {
@@ -71,9 +72,17 @@ export function weightedPos(rng: () => number, weights: [Pos, number][]): Pos {
  * The big board for a recruiting class. `weeks` is how many regular-season weeks are left before
  * Signing Day; points per week scale so a short cycle (Season 1 starts at Week 11) still matters.
  */
-export function createBoard(players: Player[], seed: number, classSeason: number, prestige: number, weeks: number): RecruitingState {
+export function createBoard(
+  players: Player[],
+  seed: number,
+  classSeason: number,
+  prestige: number,
+  weeks: number,
+  team: TeamId = "stallions",
+  fit: Pos[] = [],
+): RecruitingState {
   const weights = needWeights(players);
-  const others = ALL_TEAMS.filter((t) => t !== USER_TEAM);
+  const others = ALL_TEAMS.filter((t) => t !== team);
   // A short cycle means you're joining late: interest has already built up on both sides.
   const head = weeks < 6 ? 8 : 0;
   const STAR_SPREAD: (2 | 3 | 4 | 5)[] = [5, 5, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2];
@@ -91,12 +100,14 @@ export function createBoard(players: Player[], seed: number, classSeason: number
       ask: { 5: 250_000, 4: 100_000, 3: 30_000, 2: 10_000 }[stars] + Math.floor(r() * 4) * { 5: 50_000, 4: 25_000, 3: 10_000, 2: 3_000 }[stars],
       hometown: who.hometown,
       rival: pick(r, others),
-      you: clamp(Math.round(48 - stars * 6 + prestige * 25 + head + (r() - 0.5) * 16)),
+      // Prospects who fit your schemes lean your way; others take a little more convincing.
+      you: clamp(Math.round(48 - stars * 6 + prestige * 25 + head + (r() - 0.5) * 16 + (fit.length ? (fit.includes(pos) ? 8 : -3) : 0))),
       them: clamp(Math.round(24 + stars * 5 + head + (r() - 0.5) * 16)),
       visited: false,
       offered: false,
       pitchesThisWeek: 0,
       status: "open" as const,
+      fit: fit.includes(pos),
     };
   });
   const pointsPerWeek = Math.max(4, Math.round(36 / weeks));

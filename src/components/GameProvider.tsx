@@ -7,23 +7,27 @@ interface Ctx {
   state: GameState;
   dispatch: Dispatch<Action>;
   hydrated: boolean;
+  fresh: boolean; // no save was found: show the welcome screen
+  welcomed: () => void; // keep the classic save and skip the welcome screen
 }
 
 const GameContext = createContext<Ctx | null>(null);
 
-type Internal = Action | { type: "@@load"; state: GameState };
+type Internal = Action | { type: "@@load"; state: GameState; fresh: boolean } | { type: "@@welcomed" };
 interface Root {
   game: GameState;
   hydrated: boolean;
+  fresh: boolean;
 }
 
 function rootReducer(r: Root, a: Internal): Root {
-  if (a.type === "@@load") return { game: a.state, hydrated: true };
-  return { ...r, game: reducer(r.game, a) };
+  if (a.type === "@@load") return { game: a.state, hydrated: true, fresh: a.fresh };
+  if (a.type === "@@welcomed") return { ...r, fresh: false };
+  return { ...r, fresh: false, game: reducer(r.game, a) };
 }
 
 export function GameProvider({ children }: { children: ReactNode }) {
-  const [{ game: state, hydrated }, dispatch] = useReducer(rootReducer, undefined, () => ({ game: initialState(0), hydrated: false }));
+  const [{ game: state, hydrated, fresh }, dispatch] = useReducer(rootReducer, undefined, () => ({ game: initialState(0), hydrated: false, fresh: false }));
 
   // Load the save after mount so the server render and first client render match.
   // (Before that, a fixed-seed placeholder renders hidden; loadState gives a new save a random seed.)
@@ -34,19 +38,19 @@ export function GameProvider({ children }: { children: ReactNode }) {
     } catch {
       // Storage can be blocked (private mode); play without saving.
     }
-    dispatch({ type: "@@load", state: loadState(raw) });
+    dispatch({ type: "@@load", state: loadState(raw), fresh: raw === null });
   }, []);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || fresh) return;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
       // Ignore quota or privacy errors.
     }
-  }, [state, hydrated]);
+  }, [state, hydrated, fresh]);
 
-  return <GameContext.Provider value={{ state, dispatch, hydrated }}>{children}</GameContext.Provider>;
+  return <GameContext.Provider value={{ state, dispatch: dispatch as Dispatch<Action>, hydrated, fresh, welcomed: () => dispatch({ type: "@@welcomed" }) }}>{children}</GameContext.Provider>;
 }
 
 export function useGame() {
