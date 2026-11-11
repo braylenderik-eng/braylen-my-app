@@ -87,9 +87,12 @@ New dynasties track your coach's career.
 
 ### Player portraits
 
-Every player and prospect has a generated portrait (`src/components/PlayerFace.tsx`): skin tone, face shape, hair,
-brows, facial hair and eye black are drawn as SVG from the player's id, wearing his team's jersey. The same player
-always looks the same, so a recruit you sign keeps his face on your roster. No photos are used; everyone is fictional.
+Players and prospects show realistic, game-style headshots: a pool of 319 AI-rendered portraits of fictional people
+(`public/faces`, 256px WebP, about 5 KB each) grouped by build: big for linemen, mid for backs, tight ends, linebackers,
+edge rushers and safeties, lean for quarterbacks, receivers, corners and specialists. Each player is assigned one from his
+position's group by his id, so he always looks the same (a recruit keeps his face when he signs). The gray practice
+jersey is tinted to the team colour; recruits stay in gray. `src/components/PlayerFace.tsx` also has a drawn SVG face
+used as a fallback. No real people or photos are used.
 
 ### The calendar follows real college football
 
