@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { money } from "@/lib/format";
 import { weekLabel, type GameState } from "@/lib/game/state";
 import { TEAMS } from "@/lib/game/data";
 import { Button, ButtonLink, cx, Dialog } from "./ui";
 import { useGame } from "./GameProvider";
+import { CapRoom } from "./CapRoom";
 
 const NAV = [
   { href: "/", label: "Dashboard" },
@@ -62,9 +62,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <p className="font-display text-sm font-semibold">Season {state.season}</p>
               <p className="font-display text-[10px] tracking-widest text-muted">{state.offseason ? "Offseason" : weekLabel(state.week, state.season)}</p>
             </div>
-            <span className="font-display tabular rounded-md bg-accent/15 px-2.5 py-1.5 text-sm font-semibold text-accent-hi ring-1 ring-accent/30">
-              Room {money(state.nilBudget)}
-            </span>
+            <CapRoom state={state} />
           </div>
         </div>
       </header>
@@ -72,7 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div hidden={showTitle} className="border-b border-line bg-bg-2/60 md:hidden">
         <div className="font-display mx-auto flex max-w-7xl items-center justify-between px-4 py-2 text-xs tracking-widest text-muted">
           <span>Season {state.season} · {state.offseason ? "Offseason" : weekLabel(state.week, state.season)}</span>
-          <span className="text-accent-hi">Cap room {money(state.nilBudget)}</span>
+          <CapRoom state={state} compact />
         </div>
       </div>
 
