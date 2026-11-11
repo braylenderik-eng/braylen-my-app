@@ -67,7 +67,7 @@ function PortalWatch() {
                   <tr key={p.id} className="border-b border-line/60 last:border-0">
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-3">
-                      <PlayerFace id={p.id} color={Object.values(TEAMS).find((t) => t.name === p.from)?.color} size={36} />
+                      <PlayerFace id={p.id} pos={p.pos} color={Object.values(TEAMS).find((t) => t.name === p.from)?.color} size={36} />
                       <div className="min-w-0">
                       <p className="font-semibold">
                         {p.name} {p.tag && <Tag tone={p.tag === "HOT" ? "accent" : "gold"}>{p.tag}</Tag>}

@@ -90,7 +90,7 @@ function ProspectRow({ p, state, needs, spots, active }: { p: Prospect; state: G
   const leading = p.you >= p.them;
   return (
     <li className={cx("flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3", p.status === "signed" && "bg-good/5", p.status === "lost" && "opacity-50")}>
-      <PlayerFace id={p.id} color="#475069" size={44} />
+      <PlayerFace id={p.id} pos={p.pos} size={44} />
       <div className="w-56 min-w-0">
         <p className="font-display text-xs tracking-wider text-gold">
           {"★".repeat(p.stars)} {p.fit && <span className="ml-1"><Tag tone="accent">Scheme fit</Tag></span>} {p.local && <span className="ml-1"><Tag tone="muted">Home region</Tag></span>}

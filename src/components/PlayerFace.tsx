@@ -3,8 +3,22 @@
 // including a recruit who signs and joins the roster. All players are fictional; no photos are used.
 
 import { useId } from "react";
+import { FACE_POOL } from "@/lib/game/facePool";
 import { hashSeed, makeRng } from "@/lib/game/rng";
 import { cx } from "./ui";
+
+/** Which portrait pool a position draws from. */
+export function buildFor(pos?: string): keyof typeof FACE_POOL {
+  if (pos === "OT" || pos === "IOL" || pos === "DT") return "big";
+  if (pos === "QB" || pos === "WR" || pos === "CB" || pos === "K" || pos === "P") return "lean";
+  return "mid";
+}
+
+/** The AI portrait for a player, or null if that build's pool is empty. */
+export function portraitFor(id: string, pos?: string): number | null {
+  const pool = FACE_POOL[buildFor(pos)];
+  return pool.length ? pool[hashSeed("portrait", id) % pool.length] : null;
+}
 
 const SKIN = ["#f6d5b8", "#eac09b", "#d9a477", "#c68a5c", "#a96e45", "#8d5a36", "#6f4429", "#56331f", "#3f2618"];
 const HAIR = ["#14100d", "#14100d", "#14100d", "#2b1d14", "#2b1d14", "#4a3020", "#7a5634", "#b98a4e", "#8f3b1f"];
@@ -61,7 +75,47 @@ function shade(hex: string, amt: number) {
   return `#${[(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => f(c).toString(16).padStart(2, "0")).join("")}`;
 }
 
+/**
+ * A player's portrait: an AI-rendered headshot from the pool for his build, with the gray practice jersey
+ * tinted to his team's colour. Falls back to the drawn face when there's no portrait for his build.
+ */
 export function PlayerFace({
+  id,
+  pos,
+  color,
+  num,
+  size = 40,
+  className,
+}: {
+  id: string;
+  pos?: string;
+  color?: string; // jersey colour
+  num?: number | string;
+  size?: number;
+  className?: string;
+}) {
+  const n = portraitFor(id, pos);
+  if (n === null) return <DrawnFace id={id} color={color ?? "#475069"} num={num} size={size} className={className} />;
+  return (
+    <span
+      className={cx("relative inline-block shrink-0 overflow-hidden rounded-md bg-[#141c2e] ring-1 ring-white/10", className)}
+      style={{ width: size, height: size }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- tiny pre-sized static WebPs; next/image adds nothing here */}
+      <img src={`/faces/${String(n).padStart(3, "0")}.webp`} alt="Player portrait" width={size} height={size} loading="lazy" decoding="async" className="size-full object-cover" />
+      {/* Tint the jersey to the team colour. */}
+      {color && <span aria-hidden className="absolute inset-x-0 bottom-0 h-[24%] mix-blend-color" style={{ background: color, opacity: 0.85 }} />}
+      {num !== undefined && size >= 64 && (
+        <span aria-hidden className="font-display absolute inset-x-0 bottom-0.5 text-center text-xs font-bold text-white/90">
+          {num}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** The drawn (SVG) face. */
+export function DrawnFace({
   id,
   color = "#3a4458",
   num,
@@ -69,7 +123,7 @@ export function PlayerFace({
   className,
 }: {
   id: string;
-  color?: string; // jersey colour
+  color?: string;
   num?: number | string;
   size?: number;
   className?: string;
