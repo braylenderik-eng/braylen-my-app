@@ -6,6 +6,7 @@ import { TEAMS } from "@/lib/game/data";
 import { lineup, shortPositions, type GameState } from "@/lib/game/state";
 import { money } from "@/lib/format";
 import { useGame } from "../GameProvider";
+import { PlayerFace } from "../PlayerFace";
 import { cx, Dialog, PageHeader, Panel, Stat, Tag } from "../ui";
 
 export function Roster() {
@@ -53,6 +54,7 @@ export function Roster() {
               {signees.map((p) => (
                 <li key={p.id}>
                   <button onClick={() => setOpen(p)} className="flex w-full items-center gap-3 rounded-md border border-line bg-bg-2/70 px-3 py-2 text-left hover:border-line-2">
+                    <PlayerFace id={p.id} color={TEAMS[state.team].color} size={36} />
                     <span className="font-display tabular w-8 text-lg font-bold text-gold">{p.ovr}</span>
                     <span className="flex-1">
                       <span className="font-semibold">{p.name}</span>
@@ -94,6 +96,9 @@ function PositionGroup({ pos, state, starterIds, onOpen }: { pos: Pos; state: Ga
           return (
             <li key={p.id} className={cx("flex items-center gap-2 rounded-md px-2 py-1.5", starting && "bg-white/[0.03]")}>
               <span className="font-display tabular w-5 text-center text-xs text-dim">{i + 1}</span>
+              <button onClick={() => onOpen(p)} aria-hidden tabIndex={-1} className="shrink-0">
+                <PlayerFace id={p.id} color={TEAMS[state.team].color} size={32} />
+              </button>
               <button onClick={() => onOpen(p)} className="group min-w-0 flex-1 text-left">
                 <span className={cx("block truncate text-sm group-hover:text-accent-hi", starting ? "font-semibold" : "text-muted")}>
                   {p.name}
@@ -154,6 +159,7 @@ function PlayerCard({ player, state, onClose }: { player: Player | null; state: 
   return (
     <Dialog open title={p.name} onClose={onClose}>
       <div className="flex items-center gap-4">
+        <PlayerFace id={p.id} color={TEAMS[state.team].color} num={p.num} size={88} />
         <div className="font-display flex size-16 shrink-0 flex-col items-center justify-center rounded-lg bg-gradient-to-br from-accent to-accent/40 text-white ring-1 ring-white/15">
           <span className="text-[10px] tracking-widest opacity-80">#{p.num}</span>
           <span className="text-2xl leading-none font-bold">{p.ovr}</span>

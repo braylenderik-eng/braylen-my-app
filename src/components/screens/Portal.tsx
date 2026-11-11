@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { type PortalPlayer } from "@/lib/game/data";
+import { TEAMS, type PortalPlayer } from "@/lib/game/data";
 import { keyDates, watchList } from "@/lib/game/state";
 import { money } from "@/lib/format";
 import { useGame } from "../GameProvider";
+import { PlayerFace } from "../PlayerFace";
 import { Button, cx, Dialog, PageHeader, Panel, Tag } from "../ui";
 import { OffseasonPortal } from "./OffseasonPortal";
 
@@ -65,12 +66,17 @@ function PortalWatch() {
                 return (
                   <tr key={p.id} className="border-b border-line/60 last:border-0">
                     <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-3">
+                      <PlayerFace id={p.id} color={Object.values(TEAMS).find((t) => t.name === p.from)?.color} size={36} />
+                      <div className="min-w-0">
                       <p className="font-semibold">
                         {p.name} {p.tag && <Tag tone={p.tag === "HOT" ? "accent" : "gold"}>{p.tag}</Tag>}
                       </p>
                       <p className="text-xs text-muted">
                         {p.from} · {p.stat}
                       </p>
+                      </div>
+                      </div>
                     </td>
                     <td className="font-display px-2 text-right">{p.pos}</td>
                     <td className="font-display px-2 text-right text-muted">{p.yr}</td>

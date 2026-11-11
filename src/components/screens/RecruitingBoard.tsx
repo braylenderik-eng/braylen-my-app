@@ -8,6 +8,7 @@ import { keyDates, rosterSpots, type GameState } from "@/lib/game/state";
 import { money, pct } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { Button, cx, Panel, Stat, Tag } from "../ui";
+import { PlayerFace } from "../PlayerFace";
 
 type Filter = "All" | "Needs" | "Fit" | "Offered" | 2 | 3 | 4 | 5;
 
@@ -89,6 +90,7 @@ function ProspectRow({ p, state, needs, spots, active }: { p: Prospect; state: G
   const leading = p.you >= p.them;
   return (
     <li className={cx("flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3", p.status === "signed" && "bg-good/5", p.status === "lost" && "opacity-50")}>
+      <PlayerFace id={p.id} color="#475069" size={44} />
       <div className="w-56 min-w-0">
         <p className="font-display text-xs tracking-wider text-gold">
           {"★".repeat(p.stars)} {p.fit && <span className="ml-1"><Tag tone="accent">Scheme fit</Tag></span>} {p.local && <span className="ml-1"><Tag tone="muted">Home region</Tag></span>}

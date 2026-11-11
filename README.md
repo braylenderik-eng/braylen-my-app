@@ -85,6 +85,12 @@ New dynasties track your coach's career.
   Over the seasons, teams' ratings drift toward their conference's style. Prospects from your conference's region start
   keener on you and are tagged "Home region" on the board. The Dashboard shows your rivalry and the conference race.
 
+### Player portraits
+
+Every player and prospect has a generated portrait (`src/components/PlayerFace.tsx`): skin tone, face shape, hair,
+brows, facial hair and eye black are drawn as SVG from the player's id, wearing his team's jersey. The same player
+always looks the same, so a recruit you sign keeps his face on your roster. No photos are used; everyone is fictional.
+
 ### The calendar follows real college football
 
 | When (in game) | Real date | What happens |
