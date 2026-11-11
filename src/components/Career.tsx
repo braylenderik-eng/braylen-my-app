@@ -2,10 +2,12 @@
 
 import { TEAMS, isPowerConf } from "@/lib/game/data";
 import { careerTotals, securityLabel } from "@/lib/game/career";
-import { CONFERENCES, rivalOf, rivalryOf } from "@/lib/game/league";
+import { CONFERENCES, isRivalry, rivalOf, rivalryOf, trophyRef } from "@/lib/game/league";
 import { programProfile } from "@/lib/game/program";
 import { FINAL_WEEK } from "@/lib/game/data";
-import type { GameState } from "@/lib/game/state";
+import { awardsEnabled, currentUserFixture, type GameState } from "@/lib/game/state";
+import * as Aw from "@/lib/game/awards";
+import { PlayerFace } from "./PlayerFace";
 import { money } from "@/lib/format";
 import { useGame } from "./GameProvider";
 import { Button, ButtonLink, cx, Panel, Stat, Tag, TeamBadge } from "./ui";
@@ -158,6 +160,69 @@ export function ConferenceCard({ state }: { state: GameState }) {
       <p className="mt-2 text-xs text-dim">
         {isPowerConf(conf) ? "The champion (best record) gets an automatic playoff bid." : "The best champion outside the Power conferences gets an automatic bid."}
       </p>
+    </Panel>
+  );
+}
+
+/** This week's game is your rivalry game: a banner across the top of the Dashboard. */
+export function RivalryBanner({ state }: { state: GameState }) {
+  const f = currentUserFixture(state);
+  const r = rivalryOf(state.rivalries, state.team);
+  if (!f || !r || !isRivalry([r], f.home, f.away) || state.week > FINAL_WEEK) return null;
+  const opp = rivalOf(r, state.team);
+  const us = r.series[state.team] ?? 0;
+  const them = r.series[opp] ?? 0;
+  return (
+    <div
+      className="mb-5 flex flex-wrap items-center gap-4 overflow-hidden rounded-lg border border-gold/40 px-4 py-3"
+      style={{ background: `linear-gradient(100deg, color-mix(in srgb, ${TEAMS[state.team].color} 35%, transparent), transparent 45%, color-mix(in srgb, ${TEAMS[opp].color} 35%, transparent))` }}
+    >
+      <TeamBadge id={state.team} />
+      <div className="min-w-0 flex-1">
+        <p className="font-display text-[11px] tracking-[0.2em] text-gold">Rivalry week</p>
+        <p className="font-display text-xl leading-tight font-semibold">
+          {r.trophy} <span className="text-muted">vs</span> {TEAMS[opp].name}
+        </p>
+        <p className="text-xs text-muted">
+          Series {us}–{them} · {r.holder === state.team ? `You hold ${trophyRef(r)}` : `${TEAMS[opp].short} hold ${trophyRef(r)}`} · Records go out the window
+        </p>
+      </div>
+      <TeamBadge id={opp} />
+    </div>
+  );
+}
+
+/** Where your best player stands in the national award race. */
+export function AwardRaceCard({ state }: { state: GameState }) {
+  if (!state.league || !awardsEnabled(state)) return null;
+  const c = Aw.candidates(state.league, state.seasonStats, state.players, state.standings);
+  if (!c.length) return null;
+  const myIdx = c.findIndex((x) => x.mine);
+  const color = (t: string) => TEAMS[t as keyof typeof TEAMS]?.color;
+  const show = c.slice(0, 3);
+  const mine = myIdx >= 3 ? c[myIdx] : null;
+  const row = (x: Aw.Candidate, i: number) => (
+    <li key={x.id} className={cx("flex items-center gap-2.5 rounded px-1.5 py-1", x.mine && "bg-accent/10")}>
+      <span className="font-display tabular w-5 text-right text-xs text-dim">{i + 1}</span>
+      <PlayerFace id={x.id} pos={x.pos} color={color(x.team)} size={30} />
+      <span className="min-w-0 flex-1">
+        <span className={cx("block truncate text-sm font-semibold", x.mine && "text-accent-hi")}>{x.name}</span>
+        <span className="block truncate text-[11px] text-muted">
+          {x.pos} · {TEAMS[x.team].short} · {Aw.statSummary(x)}
+        </span>
+      </span>
+    </li>
+  );
+  return (
+    <Panel kicker="National award race" title={Aw.AWARDS.crown}>
+      <ol className="space-y-1">
+        {show.map(row)}
+        {mine && <li className="px-1.5 text-center text-xs text-dim">…</li>}
+        {mine && row(mine, myIdx)}
+      </ol>
+      <ButtonLink href="/stats" variant="outline" className="mt-3 w-full">
+        Stats &amp; awards
+      </ButtonLink>
     </Panel>
   );
 }

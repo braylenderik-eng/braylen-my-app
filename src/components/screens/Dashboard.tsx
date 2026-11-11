@@ -17,7 +17,7 @@ import { HistoryTable } from "./SimScreen";
 import { OffseasonHub } from "../OffseasonHub";
 import { DEFENSE_STYLES, OFFENSE_STYLES } from "@/lib/game/program";
 import { ScenarioCards } from "../ScenarioCards";
-import { Carousel, CareerOver, ConferenceCard, RivalryCard, SecurityMeter } from "../Career";
+import { AwardRaceCard, Carousel, CareerOver, ConferenceCard, RivalryBanner, RivalryCard, SecurityMeter } from "../Career";
 
 export function Dashboard() {
   const { state } = useGame();
@@ -34,6 +34,7 @@ export function Dashboard() {
 
       {state.unseenRecap && <LastResultBanner state={state} />}
       <Alerts state={state} />
+      {!state.offseason && <RivalryBanner state={state} />}
       {state.coach && !state.offseason && <ProgramCard state={state} />}
       {state.career?.status === "over" && <CareerOver state={state} />}
       {state.offseason && state.career && state.career.status !== "over" && (state.career.offers.length > 0 || state.career.status === "fired") && <Carousel state={state} />}
@@ -50,9 +51,10 @@ export function Dashboard() {
         <>
           <Preview state={state} />
           {!isPlayoffs(state) && (
-            <div className="mt-5 grid gap-5 lg:grid-cols-2">
+            <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
               <RivalryCard state={state} />
               <ConferenceCard state={state} />
+              <AwardRaceCard state={state} />
             </div>
           )}
         </>

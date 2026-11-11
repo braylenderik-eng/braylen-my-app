@@ -24,7 +24,12 @@ export function CoachScreen() {
       </>
     );
   }
-  const t = careerTotals(career);
+  // Include the season in progress (finished seasons are already banked into the stints).
+  const banked = state.history.some((h) => h.season === state.season);
+  const me = state.standings.find((x) => x.id === state.team);
+  const live = !banked && career.status !== "over" && me ? { wins: me.wins, losses: me.losses } : { wins: 0, losses: 0 };
+  const base = careerTotals(career);
+  const t = { ...base, wins: base.wins + live.wins, losses: base.losses + live.losses };
   const pct = t.wins + t.losses ? Math.round((t.wins / (t.wins + t.losses)) * 1000) / 10 : 0;
   return (
     <>
@@ -34,7 +39,7 @@ export function CoachScreen() {
       />
       <div className="grid gap-5 lg:grid-cols-12">
         <Panel kicker="Career" title="Résumé" className="lg:col-span-8">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
             <Stat label="Record" value={`${t.wins}–${t.losses}`} />
             <Stat label="Win %" value={`${pct}%`} />
             <Stat label="Playoffs" value={t.playoffs} />
@@ -55,7 +60,7 @@ export function CoachScreen() {
                 </div>
                 <div className="font-display tabular text-right text-sm">
                   <p>
-                    {s.wins}–{s.losses}
+                    {s.wins + (s.to === null ? live.wins : 0)}–{s.losses + (s.to === null ? live.losses : 0)}
                   </p>
                   <p className="text-[11px] tracking-wider text-muted">
                     {s.playoffs} playoff{s.playoffs === 1 ? "" : "s"}

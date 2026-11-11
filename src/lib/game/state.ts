@@ -12,6 +12,7 @@ import { DEFENSE_STYLES, expectationsVerdict, OFFENSE_STYLES, programProfile, sc
 import { hashSeed, makeRng } from "./rng";
 import * as L from "./league";
 import * as Car from "./career";
+import * as A from "./awards";
 import {
   INITIAL_INJURIES, POS_LABEL, ROSTER, rosterFor, SIDE, STARTERS, initialDepth, isAvailable, ratingLossWithout,
   skillFor, starters, teamRatings, type Injury, type LineupInput, type Player, type Pos,
@@ -19,7 +20,7 @@ import {
 import { DEFAULT_PLAN, simulateGame, type GamePlan, type GameResult, type GameTimeRisk, type SimOptions, type StatLine } from "./sim";
 
 export const STORAGE_KEY = "portal-wars-v3";
-export const STATE_VERSION = 8;
+export const STATE_VERSION = 9;
 
 // ---- Calendar and playoff format ------------------------------------------------
 // Season N is the (2025 + N) college football season. Season 1 (2026) uses the 12-team playoff;
@@ -78,10 +79,29 @@ function rivalrySaturday(season: number) {
   return Date.UTC(year, 10, firstThu + 21 + 2);
 }
 
-/** Saturday of each regular-season week, ending with rivalry week. */
+/** Week 1: the Saturday before Labor Day (the first Monday of September). */
+function openingSaturday(season: number) {
+  const year = 2025 + season;
+  const sep1 = new Date(Date.UTC(year, 8, 1)).getUTCDay();
+  const laborDay = 1 + ((1 - sep1 + 7) % 7);
+  return Date.UTC(year, 8, laborDay - 2);
+}
+
+const DAY = 86_400_000;
+export const OPEN_WEEK_AFTER = 6; // open Saturdays fall mid-October, between Weeks 6 and 7
+
+/**
+ * Saturday of each regular-season week: Week 1 is Labor Day weekend and Week 12 is rivalry week, the
+ * Saturday after Thanksgiving. Any extra Saturdays between them are open weeks in mid-October.
+ */
+export function weekTime(week: number, season = 1) {
+  const start = openingSaturday(season);
+  const open = Math.max(0, Math.round((rivalrySaturday(season) - start) / (7 * DAY)) - (FINAL_WEEK - 1));
+  return start + ((week - 1) * 7 + (week > OPEN_WEEK_AFTER ? open * 7 : 0)) * DAY;
+}
+
 export function weekDate(week: number, season = 1) {
-  const d = new Date(rivalrySaturday(season) - (FINAL_WEEK - week) * 7 * 86_400_000);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return new Date(weekTime(week, season)).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 /** Real-calendar label for a week: game dates in the season, round dates in the playoff. */
@@ -177,6 +197,9 @@ export interface GameState {
   program: ProgramProfile;
   career: Car.CareerState | null; // job security and offers (null for the classic start)
   rivalries: L.Rivalry[];
+  league: A.LeagueStats | null; // every other program's stars and their season lines
+  awards: A.AwardResult[]; // every season's award winners
+  allConference: { season: number; picks: A.AllConfPick[] } | null; // your conference's first team, this season
   season: number;
   week: number;
   schedule: Record<number, Fixture[]>;
@@ -268,6 +291,9 @@ export function initialState(seed: number = Math.floor(Math.random() * 2 ** 31))
     program: programProfile(USER_TEAM),
     career: null,
     rivalries: L.makeRivalries(seed, [[USER_TEAM, "rangers"]]),
+    league: A.makeLeague(seed, 1, standings, USER_TEAM),
+    awards: [],
+    allConference: null,
     season: 1,
     week: FIRST_WEEK,
     schedule: SCHEDULE,
@@ -339,6 +365,7 @@ export function createDynasty(coach: CoachProfile, team: TeamId, seed: number = 
     program,
     career: Car.newCareer(team, 1),
     rivalries,
+    league: A.makeLeague(seed, 1, standings, team),
     week: 1,
     schedule: generateSchedule(hashSeed("season", seed, 1), rivalries),
     teamRatings: teamRatingsAll,
@@ -854,20 +881,6 @@ function simWeek(prev: GameState, liveGame?: GameResult): GameState {
     }
   }
 
-  // Recruiting: each regular-season week passes on the board; the class signs after the last one.
-  if (playoffRound === null && recruiting && !recruiting.signed) {
-    recruiting = Rec.advanceWeek(recruiting, s.seed, s.season, week);
-    if (week === FINAL_WEEK) {
-      const r = Rec.signingDay(players, recruiting, nilBudget, s.seed);
-      players = r.players;
-      nilBudget = r.nil;
-      recruiting = r.rec;
-      const lost = r.rec.board.filter((p) => p.offered && p.status === "lost").length;
-      notes.push(`Early Signing Day: ${r.signees.length} signed${lost ? `, ${lost} offered prospect${lost === 1 ? "" : "s"} went elsewhere` : ""}. Signees enroll after the season.`);
-      if (r.signees.length) recruitingNews.push(news("RECRUITING", `${TEAMS[s.team].name} signs ${r.signees.length} on Early Signing Day`, week, s.season));
-    }
-  }
-
   // Injuries: heal, apply re-injuries, maybe add a new one.
   const injuryUpdates: WeekRecap["injuryUpdates"] = [];
   const injuries: Record<string, Injury> = {};
@@ -916,6 +929,56 @@ function simWeek(prev: GameState, liveGame?: GameResult): GameState {
       if (typeof v === "number") (merged as unknown as Record<string, number>)[k] = ((prev as unknown as Record<string, number>)[k] ?? 0) + v;
     }
     seasonStats[id] = merged;
+  }
+
+  // Recruiting: each regular-season week passes on the board; the class signs after the last one.
+  if (playoffRound === null && recruiting && !recruiting.signed) {
+    recruiting = Rec.advanceWeek(recruiting, s.seed, s.season, week);
+    if (week === FINAL_WEEK) {
+      const r = Rec.signingDay(players, recruiting, nilBudget, s.seed);
+      players = r.players;
+      nilBudget = r.nil;
+      recruiting = r.rec;
+      const lost = r.rec.board.filter((p) => p.offered && p.status === "lost").length;
+      notes.push(`Early Signing Day: ${r.signees.length} signed${lost ? `, ${lost} offered prospect${lost === 1 ? "" : "s"} went elsewhere` : ""}. Signees enroll after the season.`);
+      if (r.signees.length) recruitingNews.push(news("RECRUITING", `${TEAMS[s.team].name} signs ${r.signees.length} on Early Signing Day`, week, s.season));
+    }
+  }
+
+
+  // League stars, the award race, and season awards (after rivalry week, before Early Signing Day).
+  let league = s.league;
+  let awards = s.awards;
+  let allConf = s.allConference;
+  if (playoffRound === null && league) {
+    league = A.recordWeek(league, results, s.teamRatings, s.seed, week);
+    if (week === FINAL_WEEK && awardsEnabled(s)) {
+      const cands = A.candidates(league, seasonStats, players, standings);
+      const won = A.seasonAwards(s.season, cands, standings, league, s.team, s.coach ? { name: s.coach.name, winTarget: s.program.winTarget } : null);
+      awards = [...awards, ...won];
+      const st = starters(lineup({ ...s, players }));
+      const picks = A.allConference(s.season, s.seed, s.team, st, STARTERS, seasonStats, league, s.teamRatings);
+      allConf = { season: s.season, picks };
+      const year = 2025 + s.season;
+      const tags = new Map<string, string[]>();
+      for (const w of won.filter((x) => x.mine && x.id !== "coach")) tags.set(w.id, [...(tags.get(w.id) ?? []), `${year} ${w.award}`]);
+      for (const pk of picks.filter((x) => x.mine)) tags.set(pk.id, [...(tags.get(pk.id) ?? []), `${year} All-Conference`]);
+      players = players.map((p) => (tags.has(p.id) ? { ...p, awards: [...(p.awards ?? []), ...tags.get(p.id)!] } : p));
+      const crown = won.find((w) => w.award === A.AWARDS.crown);
+      if (crown) recruitingNews.push(news("LEAGUE", `${crown.name} (${TEAMS[crown.team].short} ${crown.pos}) wins ${A.AWARDS.crown}`, week, s.season));
+      const mineWon = won.filter((w) => w.mine);
+      const myAllConf = picks.filter((x) => x.mine).length;
+      if (mineWon.length || myAllConf) {
+        notes.push(
+          `Awards: ${[...mineWon.map((w) => `${w.name} — ${w.award}`), myAllConf ? `${myAllConf} All-Conference pick${myAllConf === 1 ? "" : "s"}` : ""].filter(Boolean).join("; ")}.`,
+        );
+        // Award winners sell the program on the recruiting trail, right before Signing Day.
+        const bump = Math.min(6, mineWon.length * 2 + Math.ceil(myAllConf / 3));
+        if (bump && recruiting && !recruiting.signed) {
+          recruiting = { ...recruiting, board: recruiting.board.map((p) => (p.status === "open" ? { ...p, you: clamp100(p.you + bump) } : p)) };
+        }
+      }
+    }
   }
 
   // Headlines.
@@ -979,6 +1042,9 @@ function simWeek(prev: GameState, liveGame?: GameResult): GameState {
     recruiting,
     gameTime: {},
     seasonStats,
+    league,
+    awards,
+    allConference: allConf,
     hype: clamp100(s.hype + (userWon === null ? 0 : userWon ? 6 : -10) + rivalryHype),
     rivalries,
     press: null,
@@ -1033,7 +1099,9 @@ export function rosterSpots(s: GameState) {
 export function startOffseason(s: GameState): GameState {
   const summary = seasonSummary(s);
   const nextSeason = s.season + 1;
-  const { players, report } = ageRoster(s.players, s.seed, nextSeason);
+  // Bank this season's stats into each player's career totals before the roster turns over.
+  const banked = s.players.map((p) => (s.seasonStats[p.id] ? { ...p, career: A.addCareer(p.career, s.seasonStats[p.id]) } : p));
+  const { players, report } = ageRoster(banked, s.seed, nextSeason);
   const ids = new Set(players.map((p) => p.id));
   const depth = Object.fromEntries(Object.entries(s.depth).map(([pos, list]) => [pos, list.filter((id) => ids.has(id))])) as GameState["depth"];
   // Signees who just enrolled join the depth chart now, ordered by rating.
@@ -1109,6 +1177,8 @@ function beginSeasonCore(s: GameState): GameState {
     week: 1,
     schedule: generateSchedule(hashSeed("season", s.seed, season), s.rivalries),
     career: s.career ? { ...s.career, offers: [] } : null,
+    league: A.makeLeague(s.seed, season, standings, s.team),
+    allConference: null,
     lastOffseason: report,
     offseason: null,
     // Next year's class: the board opens with the season and signs in December.
@@ -1137,6 +1207,9 @@ function beginSeasonCore(s: GameState): GameState {
 }
 
 // ---- Coaching career --------------------------------------------------------------
+
+/** Awards need a full season: the quick start joins at Week 11, so its first season has none. */
+export const awardsEnabled = (s: Pick<GameState, "season" | "coach">) => !(s.season === 1 && !s.coach);
 
 /** Fired and still deciding, or out of coaching: the next season can't start. */
 export const careerBlocked = (s: GameState) => !!s.career && s.career.status !== "active";
@@ -1225,7 +1298,11 @@ export function loadState(raw: string | null): GameState {
         const t = p.history.reduce((x, h) => ({ wins: x.wins + h.wins, losses: x.losses + h.losses, playoffs: x.playoffs + (h.seed ? 1 : 0), titles: x.titles + (h.finish === "National champions" ? 1 : 0) }), { wins: 0, losses: 0, playoffs: 0, titles: 0 });
         career = { ...c, stints: [{ ...c.stints[0], ...t }] };
       }
-      parsed = { ...p, version: STATE_VERSION, career, rivalries: L.makeRivalries(p.seed, p.coach ? [] : [[USER_TEAM, "rangers"]]) };
+      parsed = { ...p, version: 8, career, rivalries: L.makeRivalries(p.seed, p.coach ? [] : [[USER_TEAM, "rangers"]]) };
+    }
+    // Version 8 saves predate stats and awards: league stars start from this week.
+    if (parsed?.version === 8) {
+      parsed = { ...parsed, version: STATE_VERSION, league: A.makeLeague(parsed.seed, parsed.season, parsed.standings, parsed.team), awards: [], allConference: null };
     }
     // Saves from before the offseason update: no offseason field, and an older report shape.
     if (parsed && parsed.offseason === undefined) parsed = { ...parsed, offseason: null };

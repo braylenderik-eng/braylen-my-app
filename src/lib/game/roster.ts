@@ -19,6 +19,8 @@ export interface Player {
   source?: "portal" | "recruit" | "walkon";
   promised?: boolean; // promised a bigger role this season: won't enter the January portal
   frustrated?: boolean; // unhappy with playing time: will ask to transfer in January
+  awards?: string[]; // "2027 All-Conference", "2027 The Crown Trophy"
+  career?: import("./sim").StatLine & { games: number }; // totals from finished seasons
 }
 
 export interface Injury {

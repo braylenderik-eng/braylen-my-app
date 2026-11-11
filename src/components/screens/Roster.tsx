@@ -7,6 +7,7 @@ import { lineup, shortPositions, type GameState } from "@/lib/game/state";
 import { money } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { PlayerFace } from "../PlayerFace";
+import { statSummary } from "@/lib/game/awards";
 import { cx, Dialog, PageHeader, Panel, Stat, Tag } from "../ui";
 
 export function Roster() {
@@ -205,10 +206,25 @@ function PlayerCard({ player, state, onClose }: { player: Player | null; state: 
           )}
         </p>
         <p>
-          <span className="text-muted">Season ({s?.games ?? 0} sim game{s?.games === 1 ? "" : "s"}): </span>
+          <span className="text-muted">Season ({s?.games ?? 0} game{s?.games === 1 ? "" : "s"}): </span>
           {statLines.length ? statLines.join(" · ") : "No stats yet"}
         </p>
+        {p.career && (
+          <p>
+            <span className="text-muted">Career ({p.career.games} games): </span>
+            {statSummary(p.career)}
+          </p>
+        )}
       </div>
+      {p.awards && p.awards.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {p.awards.map((a) => (
+            <Tag key={a} tone="gold">
+              {a}
+            </Tag>
+          ))}
+        </div>
+      )}
     </Dialog>
   );
 }

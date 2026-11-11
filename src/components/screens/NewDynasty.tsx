@@ -49,9 +49,9 @@ export function NewDynasty() {
           <li
             key={s}
             aria-current={i === step ? "step" : undefined}
-            className={cx("font-display rounded-md border px-3 py-2 text-center text-xs tracking-widest", i === step ? "border-accent bg-accent/10 text-text" : i < step ? "border-line text-accent-hi" : "border-line text-dim")}
+            className={cx("font-display truncate rounded-md border px-1 py-2 text-center text-[10px] tracking-wider sm:px-3 sm:text-xs sm:tracking-widest", i === step ? "border-accent bg-accent/10 text-text" : i < step ? "border-line text-accent-hi" : "border-line text-dim")}
           >
-            {i < step ? "✓ " : ""}
+            {i < step && <span className="hidden sm:inline">✓ </span>}
             {s}
           </li>
         ))}

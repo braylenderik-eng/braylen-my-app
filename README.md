@@ -85,6 +85,31 @@ New dynasties track your coach's career.
   Over the seasons, teams' ratings drift toward their conference's style. Prospects from your conference's region start
   keener on you and are tagged "Home region" on the board. The Dashboard shows your rivalry and the conference race.
 
+### Stats and awards
+
+- **League stars.** Every other program has five stars (QB, RB, WR, edge rusher, safety) whose season lines build
+  week by week from their real game scores. Your players use their actual game stats.
+- **The award race.** The `/stats` page and the Dashboard track the race for **The Crown Trophy** (national player of
+  the year), which counts production and team success.
+- **Awards.** They're handed out after rivalry week, before Early Signing Day:
+
+  | Award | Goes to |
+  | --- | --- |
+  | The Crown Trophy | National player of the year |
+  | Field General | Top quarterback |
+  | Workhorse | Top running back |
+  | Deep Threat | Top receiver |
+  | Iron Wall | Top defensive player |
+  | Rising Star | Top freshman |
+  | Coach of the Year | Best coaching job |
+
+  Your conference also names a first-team **All-Conference** squad.
+- **What winning does for you.** Your winners get badges on their player cards, and every award and All-Conference pick
+  nudges recruits your way right before Signing Day.
+- **Leaders and career totals.** `/stats` lists national leaders (passing, rushing, receiving, sacks, takeaways), and
+  player cards show career totals once a season is banked.
+- The quick start joins at Week 11, so awards begin in its second season.
+
 ### Player portraits
 
 Players and prospects show realistic, game-style headshots: a pool of 319 AI-rendered portraits of fictional people
@@ -98,7 +123,7 @@ used as a fallback. No real people or photos are used.
 
 | When (in game) | Real date | What happens |
 | --- | --- | --- |
-| Regular season, weeks 1–12 | late Aug – rivalry week (Sat after Thanksgiving) | Games, weekly scenarios, and the recruiting board for next year's class |
+| Regular season, weeks 1–12 | Labor Day weekend – rivalry week (Sat after Thanksgiving), with an open week in mid-October | Games, weekly scenarios, and the recruiting board for next year's class |
 | Right after Week 12 | early December (Dec 2–4 in 2026) | **Early Signing Day** — offered prospects sign with you or a rival |
 | Selection | early December | The playoff field is set (see below) |
 | Playoff | December – January | 12 teams in Season 1 (2026); **24 teams from Season 2 (2027-28)** |
@@ -134,6 +159,7 @@ Then open http://localhost:3000.
 | ------------- | ------------------------------------------------------------------------------- |
 | `/`           | Weekly preview: game of the week, your program and expectations, playoff odds   |
 | `/new`        | New dynasty setup: coach, program, schemes                                      |
+| `/stats`      | Award race, national leaders, award winners, All-Conference                     |
 | `/coach`      | Your coach's résumé and job security (new dynasties)                            |
 | `/sim`        | Game plan, **Play live** / **Quick sim**, recaps, playoff bracket, offseason     |
 | `/roster`     | Depth chart, injuries and player cards                                          |
