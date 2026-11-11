@@ -7,14 +7,14 @@ window, and chase a title. All teams and players are fictional.
 
 ### Starting a dynasty
 
-The first visit opens a title screen with two options:
+The app always opens on a title screen: **New dynasty**, **Continue** your save (if you have one), or **Quick start**.
 
 - **New dynasty**: a setup flow at `/new`.
   1. Name your coach and alma mater.
   2. Pick any of the 40 programs.
   3. Choose an offensive and a defensive philosophy.
   4. Start at Week 1 of the 2026 season.
-- **Quick start**: drops you into the Lone Star Stallions' Week 11 playoff push.
+- **Quick start**: drops you into the Lone Star Stallions' Week 11 playoff push (replaces your save).
 
 "New dynasty" in the footer starts over. There are no accounts yet; the save lives in your browser.
 

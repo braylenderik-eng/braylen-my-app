@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { money } from "@/lib/format";
-import { weekLabel } from "@/lib/game/state";
+import { weekLabel, type GameState } from "@/lib/game/state";
+import { TEAMS } from "@/lib/game/data";
 import { Button, ButtonLink, cx, Dialog } from "./ui";
 import { useGame } from "./GameProvider";
 
@@ -19,8 +20,9 @@ const NAV = [
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { state, hydrated, fresh, welcomed } = useGame();
+  const { state, dispatch, hydrated, title, hasSave, closeTitle } = useGame();
   const path = usePathname();
+  const showTitle = hydrated && title && path !== "/new";
   const [confirmReset, setConfirmReset] = useState(false);
   const router = useRouter();
 
@@ -31,7 +33,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link href="/" className="font-display shrink-0 py-3 text-xl font-bold tracking-wide">
             <span className="text-accent">Portal</span>Wars
           </Link>
-          <nav aria-label="Main" className="scrollbar-none -mb-px flex flex-1 gap-1 overflow-x-auto">
+          <nav aria-label="Main" hidden={showTitle} className="scrollbar-none -mb-px flex flex-1 gap-1 overflow-x-auto">
             {NAV.map((n) => {
               const active = n.href === "/" ? path === "/" : path.startsWith(n.href);
               const hurt = Object.values(state.injuries).some((i) => i.status === "questionable");
@@ -53,7 +55,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               );
             })}
           </nav>
-          <div className="hidden shrink-0 items-center gap-3 md:flex">
+          <div className={cx("hidden shrink-0 items-center gap-3", !showTitle && "md:flex")}>
             <div className="text-right leading-tight">
               <p className="font-display text-sm font-semibold">Season {state.season}</p>
               <p className="font-display text-[10px] tracking-widest text-muted">{state.offseason ? "Offseason" : weekLabel(state.week, state.season)}</p>
@@ -65,7 +67,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <div className="border-b border-line bg-bg-2/60 md:hidden">
+      <div hidden={showTitle} className="border-b border-line bg-bg-2/60 md:hidden">
         <div className="font-display mx-auto flex max-w-7xl items-center justify-between px-4 py-2 text-xs tracking-widest text-muted">
           <span>Season {state.season} · {state.offseason ? "Offseason" : weekLabel(state.week, state.season)}</span>
           <span className="text-accent-hi">NIL {money(state.nilBudget)}</span>
@@ -75,8 +77,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
         {/* Always render the page (Next validates every segment); hide it until the save has loaded. */}
         {!hydrated && <p className="font-display py-20 text-center tracking-widest text-muted">Loading season…</p>}
-        {hydrated && fresh && path !== "/new" && <Welcome onClassic={welcomed} />}
-        <div hidden={!hydrated || (fresh && path !== "/new")}>{children}</div>
+        {showTitle && <TitleScreen state={state} hasSave={hasSave} onContinue={closeTitle} onQuickStart={() => dispatch({ type: "reset" })} />}
+        <div hidden={!hydrated || showTitle}>{children}</div>
       </main>
 
       <footer className="border-t border-line">
@@ -111,8 +113,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
-/** First visit: set up a dynasty, or jump straight into the classic late-season scenario. */
-function Welcome({ onClassic }: { onClassic: () => void }) {
+/** The title screen: every visit starts here. */
+function TitleScreen({ state, hasSave, onContinue, onQuickStart }: { state: GameState; hasSave: boolean; onContinue: () => void; onQuickStart: () => void }) {
+  const where = state.offseason ? "Offseason" : weekLabel(state.week, state.season);
   return (
     <div className="mx-auto max-w-2xl py-10 text-center">
       <p className="font-display text-xs tracking-[0.3em] text-accent-hi">College football GM</p>
@@ -123,15 +126,22 @@ function Welcome({ onClassic }: { onClassic: () => void }) {
         Pick a program, set your schemes, recruit through the season, survive Early Signing Day and the January transfer window, and
         chase a title in the new playoff.
       </p>
-      <div className="mt-8 grid gap-3 sm:grid-cols-2">
+      <div className="mx-auto mt-8 grid max-w-md gap-3">
         <ButtonLink href="/new" className="py-4 text-base">
           New dynasty
         </ButtonLink>
-        <Button variant="outline" onClick={onClassic} className="py-4 text-base">
+        {hasSave && (
+          <Button variant="outline" onClick={onContinue} className="py-4 text-base">
+            Continue: {TEAMS[state.team].name} · Season {state.season}, {where}
+          </Button>
+        )}
+        <Button variant="ghost" onClick={onQuickStart} className="py-3">
           Quick start: Lone Star, Week 11
         </Button>
       </div>
-      <p className="mt-3 text-xs text-dim">The quick start drops you into a playoff push with two weeks left in the 2026 season.</p>
+      <p className="mt-3 text-xs text-dim">
+        The quick start drops you into a playoff push with two weeks left in the 2026 season{hasSave ? " and replaces your current save" : ""}.
+      </p>
     </div>
   );
 }

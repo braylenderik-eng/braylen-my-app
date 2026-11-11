@@ -18,7 +18,7 @@ const CONFS = [...new Set(ALL_TEAMS.map((id) => TEAMS[id].conf))].sort((a, b) =>
 
 /** New dynasty setup: name your coach, pick a program, choose your schemes, start at Week 1. */
 export function NewDynasty() {
-  const { state, dispatch, fresh } = useGame();
+  const { dispatch, hasSave } = useGame();
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
@@ -33,7 +33,6 @@ export function NewDynasty() {
     [conf],
   );
   const canNext = [name.trim().length >= 2, team !== null, true, true][step];
-  const hasSave = !fresh && (state.recaps.length > 0 || state.season > 1 || state.coach !== null);
 
   const start = () => {
     if (!team) return;
