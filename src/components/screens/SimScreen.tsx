@@ -13,6 +13,7 @@ import {
 import { pct } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { MatchupHero, useMatchup, type MatchupInfo } from "../Matchup";
+import { LiveGame } from "../LiveGame";
 import { OffseasonHub } from "../OffseasonHub";
 import { Button, cx, PageHeader, Panel, Stat, Tag, TeamBadge } from "../ui";
 import { UnitCard, unitEdges } from "../UnitMatchups";
@@ -147,7 +148,9 @@ function GamePlan({ state }: { state: GameState }) {
   const { dispatch } = useGame();
   const m = useMatchup(state);
   const [simming, setSimming] = useState(false);
+  const [live, setLive] = useState(false);
   if (!m) return null;
+  if (live) return <LiveGame state={state} m={m} onExit={() => setLive(false)} />;
   const scout = scoutingFor(state, m.them);
   const edges = unitEdges(state, m.us, m.them);
   const attack = edges.filter((e) => e.side === "attack");
@@ -230,6 +233,10 @@ function GamePlan({ state }: { state: GameState }) {
         m={m}
         simming={simming}
         onSim={sim}
+        onPlayLive={() => {
+          setLive(true);
+          window.scrollTo({ top: 0 });
+        }}
         onSimToPlayoffs={
           isPlayoffs(state) || state.week >= FINAL_WEEK
             ? undefined
@@ -347,7 +354,19 @@ function Choice({ active, onClick, title, blurb }: { active: boolean; onClick: (
   );
 }
 
-function SimBar({ m, simming, onSim, onSimToPlayoffs }: { m: MatchupInfo; simming: boolean; onSim: () => void; onSimToPlayoffs?: () => void }) {
+function SimBar({
+  m,
+  simming,
+  onSim,
+  onPlayLive,
+  onSimToPlayoffs,
+}: {
+  m: MatchupInfo;
+  simming: boolean;
+  onSim: () => void;
+  onPlayLive: () => void;
+  onSimToPlayoffs?: () => void;
+}) {
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-bg/95 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3">
@@ -366,8 +385,11 @@ function SimBar({ m, simming, onSim, onSimToPlayoffs }: { m: MatchupInfo; simmin
             Sim to playoffs
           </Button>
         )}
-        <Button onClick={onSim} disabled={simming} className="px-6 py-3 text-base sm:px-10">
-          {simming ? "Simulating…" : "Sim game"}
+        <Button variant="outline" onClick={onSim} disabled={simming} className="px-4 py-3">
+          {simming ? "Simulating…" : "Quick sim"}
+        </Button>
+        <Button onClick={onPlayLive} disabled={simming} className="px-5 py-3 text-base sm:px-8">
+          Play live
         </Button>
       </div>
     </div>
@@ -618,6 +640,23 @@ function Recap({ recap, fresh, onBack }: { recap: WeekRecap; fresh: boolean; onB
                   <p className="text-sm text-muted">
                     {o?.won ? (recap.week === TITLE_WEEK ? "The title is yours." : `On to the ${PLAYOFF_ROUNDS[roundOf(recap.week) + 1].toLowerCase()}.`) : "The season ends here."}
                   </p>
+                </Panel>
+              )}
+              {g.calls && g.calls.length > 0 && (
+                <Panel kicker="Live game" title="Your calls">
+                  <ul className="space-y-2 text-sm">
+                    {g.calls.map((c, i) => (
+                      <li key={i} className="rounded-md border border-line bg-bg-2/70 px-3 py-2">
+                        <p className="font-display text-[10px] tracking-widest text-muted">
+                          {c.quarter === 5 ? "OT" : `Q${c.quarter}`} · {c.label}
+                        </p>
+                        <p>
+                          {c.choice}
+                          {c.outcome && <span className={c.good ? "text-good" : "text-bad"}> — {c.outcome}</span>}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
                 </Panel>
               )}
               <FrontOfficeNotes recap={recap} g={g} />

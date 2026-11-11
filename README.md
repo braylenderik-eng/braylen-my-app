@@ -4,7 +4,9 @@ A college football GM game prototype. You run the Lone Star Stallions as a multi
 in the year with a five-star recruit's $1.1M ultimatum; after that, every season is a full 12-week schedule and a
 12-team playoff. In the offseason, seniors graduate and players develop, then you work the transfer portal (keep
 your own players from leaving, bid on others) and recruit a high-school class over three rounds before Signing Day.
-Set your depth chart and game plan, sim your games, and build a history. All teams and players are fictional.
+Set your depth chart and game plan, then play each game live — watch it unfold drive by drive and make the big calls
+(4th downs, extra point or two, halftime adjustments, clock management) — or quick-sim it. Build a history. All teams
+and players are fictional.
 
 Built with Next.js 16, TypeScript and Tailwind CSS. Progress is saved in the browser.
 
@@ -31,7 +33,9 @@ Then open http://localhost:3000.
 
 ## How the sim works
 
-`src/lib/game/sim.ts` plays a game drive by drive with a seeded random generator. Each save gets its own seed, so
+`src/lib/game/sim.ts` plays a game drive by drive with a seeded random generator. The engine is a generator
+(`playGame`) that can pause for the user's calls in a live game; `simulateGame` runs the same engine straight through
+with the default calls, so a live game where you accept every default plays out exactly like a quick sim. Each save gets its own seed, so
 seasons play out differently, but a given save is reproducible. Each drive ends in a touchdown, field goal, punt or
 turnover, with odds driven by offense vs. defense ratings, home field (none at neutral playoff sites) and your game plan.
 

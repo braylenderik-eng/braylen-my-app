@@ -135,7 +135,7 @@ export type Action =
   | { type: "plan/set"; plan: Partial<GamePlan> }
   | { type: "depth/move"; pos: Pos; playerId: string; dir: -1 | 1 }
   | { type: "gametime/set"; playerId: string; call: "start" | "rest" }
-  | { type: "sim/week" }
+  | { type: "sim/week"; userGame?: GameResult } // userGame: a game the user just played live
   | { type: "sim/toPlayoffs" }
   | { type: "season/next" } // skip the offseason: let the portal and recruiting resolve with no moves
   | { type: "offseason/start" }
@@ -475,7 +475,7 @@ export function reducer(s: GameState, a: Action): GameState {
       return { ...s, unseenRecap: false };
 
     case "sim/week":
-      return simWeek(s);
+      return simWeek(s, a.userGame);
 
     case "sim/toPlayoffs": {
       let next = s;
@@ -566,7 +566,7 @@ export function reducer(s: GameState, a: Action): GameState {
 
 // ---- The weekly sim ---------------------------------------------------------------
 
-function simWeek(s: GameState): GameState {
+function simWeek(s: GameState, liveGame?: GameResult): GameState {
   if (seasonOver(s)) return s;
   const week = s.week;
   const playoffRound = isPlayoffs(s) ? roundOf(week) : null;
@@ -579,7 +579,8 @@ function simWeek(s: GameState): GameState {
   const results: (Score & { slot?: number })[] = [];
   for (const f of fixtures) {
     const isUser = f.home === USER_TEAM || f.away === USER_TEAM;
-    const g = simulateGame(f.home, f.away, hashSeed("game", s.seed, s.season, week, f.home, f.away), {
+    const played = isUser && liveGame && liveGame.home === f.home && liveGame.away === f.away;
+    const g = played ? liveGame : simulateGame(f.home, f.away, hashSeed("game", s.seed, s.season, week, f.home, f.away), {
       ratings: s.teamRatings,
       ...(isUser ? userOpts : {}),
       neutral: (f as { neutral?: boolean }).neutral ?? false,
