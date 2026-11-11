@@ -42,7 +42,7 @@ export function OffseasonPortal({ state }: { state: GameState }) {
       />
 
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="NIL budget" value={money(state.nilBudget)} tone="gold" />
+        <Stat label="Cap room" value={money(state.nilBudget)} tone="gold" />
         <Stat label="Roster spots open" value={spots} />
         <Stat label="Bids filed" value={off.bids.length} />
         <Stat label="Thin positions" value={thin.length} tone={thin.length ? "bad" : "good"} />
@@ -146,6 +146,8 @@ export function OffseasonPortal({ state }: { state: GameState }) {
                           <p className="font-semibold">{t.name}</p>
                           <p className="text-xs text-muted">
                             ex-{TEAMS[t.from].name} · {t.note}
+                            {t.room === "path" && <span className="ml-1.5 text-good">Path to start</span>}
+                            {t.room === "crowded" && <span className="ml-1.5 text-dim">Crowded room</span>}
                           </p>
                         </div>
                       </div>
@@ -164,7 +166,7 @@ export function OffseasonPortal({ state }: { state: GameState }) {
                         </Tag>
                       ) : open ? (
                         <Button className="px-3 py-1.5 text-xs" disabled={!can} onClick={() => dispatch({ type: "offseason/bid", id: t.id })}>
-                          {spots < 1 ? "No spots" : state.nilBudget < t.ask ? "Short on NIL" : "Bid"}
+                          {spots < 1 ? "No spots" : state.nilBudget < t.ask ? "Over budget" : "Bid"}
                         </Button>
                       ) : (
                         <span className="text-xs text-dim">—</span>

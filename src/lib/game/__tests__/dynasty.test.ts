@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { FINAL_WEEK, TEAMS } from "../data";
 import { expectationsVerdict, programProfile, schemeEdge, schemeFit, type CoachProfile } from "../program";
 import { ALL_TEAMS } from "../season";
+import { capRoom, MIN_ROOM } from "../economy";
 import { createDynasty, currentUserFixture, loadState, reducer, seasonOver, STATE_VERSION, type GameState } from "../state";
 
 const coach: CoachProfile = { name: "Ray Dalton", almaMater: "Somewhere State", offense: "airraid", defense: "attacking" };
@@ -20,7 +21,7 @@ describe("program profiles", () => {
     expect(expectationsVerdict(11, 9).label).toBe("Exceeded expectations");
     expect(expectationsVerdict(9, 9).label).toBe("Met expectations");
     expect(expectationsVerdict(7, 9).label).toBe("Fell short");
-    expect(expectationsVerdict(4, 9)).toEqual({ label: "Hot seat", budget: -250_000 });
+    expect(expectationsVerdict(4, 9)).toEqual({ label: "Hot seat", budget: -1_500_000 });
   });
 
   test("scheme fit and edge", () => {
@@ -42,7 +43,7 @@ describe("createDynasty", () => {
     expect(s.season).toBe(1);
     expect(s.week).toBe(1);
     expect(s.plan).toEqual({ offense: "air", defense: "pressure" });
-    expect(s.nilBudget).toBe(programProfile(team).baseBudget);
+    expect(s.nilBudget).toBe(capRoom(programProfile(team).baseBudget, s.players, MIN_ROOM.start));
     expect(s.players.every((p) => p.id.startsWith(`${team}-`))).toBe(true);
     expect(s.standings).toHaveLength(ALL_TEAMS.length);
     expect(s.recruiting!.weeks).toBe(FINAL_WEEK);

@@ -5,6 +5,7 @@
 
 import { PORTAL, TEAMS, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
+import { playingTime, retentionCost, transferAsk } from "./economy";
 import { POS_ORDER, STARTERS, type Player, type Pos } from "./roster";
 import { ROSTER_MAX, needWeights, weightedPos } from "./recruiting";
 import { ALL_TEAMS, freeNumber, makePerson } from "./season";
@@ -32,6 +33,7 @@ export interface Transfer {
   rivals: number;
   note: string;
   hometown: string;
+  room?: "path" | "crowded"; // playing time at your school
 }
 
 export interface OffseasonState {
@@ -57,7 +59,7 @@ function watchListTransfers(): Transfer[] {
     yr: (p.yr === "Sr" ? "Sr" : p.yr === "Jr" ? "Jr" : "So") as Transfer["yr"],
     ovr: p.ovr,
     pot: p.pot,
-    ask: p.ask,
+    ask: transferAsk(p.pos as Pos, p.ovr, `watch-${p.id}`),
     rivals: p.rivals,
     note: p.note,
     hometown: `via ${p.from}`,
@@ -79,7 +81,7 @@ export function openOffseason(players: Player[], depth: Record<Pos, string[]>, s
     for (const p of list.slice(STARTERS[pos])) {
       if (p.promised) continue;
       if (p.frustrated || ((p.yr === "So" || p.yr === "Jr") && p.ovr >= 74 && rng() < 0.45)) {
-        departures.push({ playerId: p.id, keepCost: 40_000 + Math.max(0, p.ovr - 72) * 12_000, call: null });
+        departures.push({ playerId: p.id, keepCost: retentionCost(p.pos, p.ovr, p.id), call: null });
       }
     }
   }
@@ -101,7 +103,7 @@ export function openOffseason(players: Player[], depth: Record<Pos, string[]>, s
       yr,
       ovr,
       pot: Math.min(97, ovr + (yr === "Sr" ? 0 : yr === "Jr" ? 2 + Math.floor(r() * 3) : 4 + Math.floor(r() * 5))),
-      ask: Math.round((60_000 + (ovr - 72) * 22_000) / 5_000) * 5_000,
+      ask: transferAsk(pos, ovr, `tr-${season}-${i}`),
       rivals: Math.floor(r() * (ovr >= 85 ? 9 : 6)),
       note: pick(r, [
         "Wants a bigger role and a contender.",
@@ -114,7 +116,9 @@ export function openOffseason(players: Player[], depth: Record<Pos, string[]>, s
     };
   });
 
-  return { phase: "portal", departures, pool: [...carried, ...generated].sort((a, b) => b.ovr - a.ovr), bids: [], log: [] };
+  // Playing time decides a lot of portal moves: a path to start pulls, a crowded room pushes.
+  const pool = [...carried, ...generated].map((t) => ({ ...t, room: playingTime(players, t.pos, t.ovr, STARTERS[t.pos]) })).sort((a, b) => b.ovr - a.ovr);
+  return { phase: "portal", departures, pool, bids: [], log: [] };
 }
 
 /** Spots left under the roster cap during the window, counting releases and pending bids. */
@@ -125,7 +129,7 @@ export function openSpots(players: Player[], off: OffseasonState) {
 }
 
 export function signChance(t: Transfer, hype: number, prestige: number) {
-  return clamp(0.82 - t.rivals * 0.06 + (hype - 50) / 250 + prestige * 0.12, 0.12, 0.93);
+  return clamp(0.8 - t.rivals * 0.06 + (hype - 50) / 250 + prestige * 0.08 + (t.room === "path" ? 0.12 : t.room === "crowded" ? -0.15 : 0), 0.08, 0.93);
 }
 
 /** Close the window: departures who weren't kept leave, bids resolve, signings join the roster. */

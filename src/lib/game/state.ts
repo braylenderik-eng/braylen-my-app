@@ -13,6 +13,7 @@ import { hashSeed, makeRng } from "./rng";
 import * as L from "./league";
 import * as Car from "./career";
 import * as A from "./awards";
+import * as Eco from "./economy";
 import {
   INITIAL_INJURIES, POS_LABEL, ROSTER, rosterFor, SIDE, STARTERS, initialDepth, isAvailable, ratingLossWithout,
   skillFor, starters, teamRatings, type Injury, type LineupInput, type Player, type Pos,
@@ -20,7 +21,7 @@ import {
 import { DEFAULT_PLAN, simulateGame, type GamePlan, type GameResult, type GameTimeRisk, type SimOptions, type StatLine } from "./sim";
 
 export const STORAGE_KEY = "portal-wars-v3";
-export const STATE_VERSION = 9;
+export const STATE_VERSION = 10;
 
 // ---- Calendar and playoff format ------------------------------------------------
 // Season N is the (2025 + N) college football season. Season 1 (2026) uses the 12-team playoff;
@@ -270,7 +271,7 @@ const LOSS_BAD = 12;
  */
 function withCommitments(rec: Rec.RecruitingState): Rec.RecruitingState {
   const board = rec.board.map((p, i) => {
-    if (i === 0) return { ...p, name: "Jalen Rook", pos: "QB" as const, hometown: "Austin, TX", offered: true, you: 72, them: 60, ask: 850_000 };
+    if (i === 0) return { ...p, name: "Jalen Rook", pos: "QB" as const, hometown: "Austin, TX", offered: true, you: 72, them: 60, ask: 1_400_000 };
     if (i === 3) return { ...p, offered: true, you: Math.max(p.you, p.them + 8) };
     return p;
   });
@@ -283,6 +284,9 @@ export function initialState(seed: number = Math.floor(Math.random() * 2 ** 31))
     rank: i + 1,
     score: 100 - i * SPACING, // spacing keeps the starting order until results move it
   }));
+  // Joining late in Season 1: two recruiting weeks before Early Signing Day, with two offers already out.
+  const classicBoard = withCommitments(Rec.createBoard(ROSTER, seed, 2, 0.45, FINAL_WEEK - FIRST_WEEK + 1));
+  const offered = classicBoard.board.filter((p) => p.offered).reduce((n, p) => n + p.ask, 0);
   const s: GameState = {
     version: STATE_VERSION,
     seed,
@@ -301,13 +305,12 @@ export function initialState(seed: number = Math.floor(Math.random() * 2 ** 31))
     history: [],
     lastOffseason: null,
     offseason: null,
-    nilBudget: 2_100_000,
+    nilBudget: Math.max(0, Eco.capRoom(programProfile(USER_TEAM).baseBudget, ROSTER, Eco.MIN_ROOM.start) - offered),
     scholarships: 3,
     hype: 50,
     mediaTrust: 70,
     scenarios: { open: [], log: [] },
-    // Joining late in Season 1: two recruiting weeks before Early Signing Day.
-    recruiting: withCommitments(Rec.createBoard(ROSTER, seed, 2, 0.45, FINAL_WEEK - FIRST_WEEK + 1)),
+    recruiting: classicBoard,
     press: null,
     bids: [],
     scouts: [],
@@ -373,7 +376,7 @@ export function createDynasty(coach: CoachProfile, team: TeamId, seed: number = 
     depth,
     injuries: {},
     standings,
-    nilBudget: program.baseBudget,
+    nilBudget: Eco.capRoom(program.baseBudget, players, Eco.MIN_ROOM.start),
     scholarships: Math.max(0, Rec.ROSTER_MAX - players.length),
     plan: { offense: OFFENSE_STYLES[coach.offense].plan, defense: DEFENSE_STYLES[coach.defense].plan },
     recruiting: Rec.createBoard(players, seed, 2, program.prestige, FINAL_WEEK, team, schemeFit(coach)),
@@ -395,7 +398,7 @@ export function standingOf(s: GameState, id: TeamId) {
 }
 
 /** Season 1 "portal watch": players expected to enter the January window. They can't sign until then. */
-export const watchList = () => PORTAL;
+export const watchList = () => PORTAL.map((p) => ({ ...p, ask: Eco.transferAsk(p.pos as Pos, p.ovr, `watch-${p.id}`) }));
 
 /** The slice of the save a scenario can read and change. */
 export function world(s: GameState): Ev.World {
@@ -1101,7 +1104,10 @@ export function startOffseason(s: GameState): GameState {
   const nextSeason = s.season + 1;
   // Bank this season's stats into each player's career totals before the roster turns over.
   const banked = s.players.map((p) => (s.seasonStats[p.id] ? { ...p, career: A.addCareer(p.career, s.seasonStats[p.id]) } : p));
-  const { players, report } = ageRoster(banked, s.seed, nextSeason);
+  const aged = ageRoster(banked, s.seed, nextSeason);
+  // Players who developed get raises; seniors who left free up their money.
+  const players = Eco.reprice(aged.players);
+  const report = aged.report;
   const ids = new Set(players.map((p) => p.id));
   const depth = Object.fromEntries(Object.entries(s.depth).map(([pos, list]) => [pos, list.filter((id) => ids.has(id))])) as GameState["depth"];
   // Signees who just enrolled join the depth chart now, ordered by rating.
@@ -1111,7 +1117,7 @@ export function startOffseason(s: GameState): GameState {
     const byId = new Map(players.map((x) => [x.id, x]));
     depth[p.pos] = list.sort((x, y) => byId.get(y)!.ovr - byId.get(x)!.ovr);
   }
-  const playoffBonus = summary.finish === "National champions" ? 300_000 : summary.seed ? 100_000 : 0;
+  const playoffBonus = summary.finish === "National champions" ? Eco.PLAYOFF_BUDGET.title : summary.seed ? Eco.PLAYOFF_BUDGET.playoff : 0;
   let career = s.career;
   const careerNews: NewsItem[] = [];
   if (career && s.coach && summary.expectation) {
@@ -1139,7 +1145,13 @@ export function startOffseason(s: GameState): GameState {
     scouts: [],
     teamRatings: driftRatings(s.teamRatings, s.seed, nextSeason, s.team),
     // Next year's budget: the program's base, plus wins and a playoff run, plus or minus how you did against expectations.
-    nilBudget: (s.coach ? s.program.baseBudget : 2_000_000) + summary.wins * 25_000 + playoffBonus + (s.coach ? expectationsVerdict(summary.wins, s.program.winTarget).budget : 0),
+    // Next year's room: the program's budget (revenue share + collective), plus wins and a playoff run, plus or
+    // minus how you did against expectations, minus what the returning roster now costs.
+    nilBudget: Eco.capRoom(
+      s.program.baseBudget + summary.wins * Eco.BUDGET_PER_WIN + playoffBonus + (s.coach ? expectationsVerdict(summary.wins, s.program.winTarget).budget : 0),
+      players,
+      Eco.MIN_ROOM.season,
+    ),
     lastOffseason: report,
     offseason: Off.openOffseason(players, depth, s.seed, nextSeason, s.team, !s.coach && nextSeason === 2),
     unseenRecap: false,
@@ -1235,7 +1247,7 @@ function acceptJob(s: GameState, team: TeamId): GameState {
     depth,
     injuries: {},
     gameTime: {},
-    nilBudget: program.baseBudget,
+    nilBudget: Eco.capRoom(program.baseBudget, players, Eco.MIN_ROOM.start),
     hype: 55,
     plan: { offense: OFFENSE_STYLES[s.coach.offense].plan, defense: DEFENSE_STYLES[s.coach.defense].plan },
     lastOffseason: emptyReport(),
@@ -1271,6 +1283,45 @@ function migrateV4(old: GameState): GameState {
   return { ...old, version: 5, offseason, recruiting, bids: [], nilBudget: old.nilBudget + refund };
 }
 
+/** Bring an old save's money to 2026-27 scale. */
+function rescaleEconomy(old: GameState): GameState {
+  const program = programProfile(old.team);
+  const players = old.players.map((p) =>
+    p.source === "walkon" ? p : p.yr === "HS" ? { ...p, nil: Math.max(p.nil * 4, 25_000) } : { ...p, nil: Eco.marketValue(p.pos, p.ovr, p.id) },
+  );
+  const recruiting = old.recruiting && {
+    ...old.recruiting,
+    board: old.recruiting.board.map((p) => ({
+      ...p,
+      ask: Eco.recruitAsk(p.stars, p.pos, makeRng(hashSeed("rescale", p.id))),
+      room: Eco.playingTime(players, p.pos, p.ovr + 6, STARTERS[p.pos]),
+    })),
+  };
+  const off = old.offseason;
+  const offseason = off && {
+    ...off,
+    departures: off.departures.map((d) => {
+      const p = players.find((x) => x.id === d.playerId);
+      return p ? { ...d, keepCost: Eco.retentionCost(p.pos, p.ovr, p.id) } : d;
+    }),
+    pool: off.pool.map((t) => ({ ...t, ask: Eco.transferAsk(t.pos, t.ovr, t.id), room: Eco.playingTime(players, t.pos, t.ovr, STARTERS[t.pos]) })),
+  };
+  const asks = new Map(offseason?.pool.map((t) => [t.id, t.ask]));
+  const bids = offseason?.bids.map((b) => (b.status === "pending" ? { ...b, amount: asks.get(b.id) ?? b.amount } : b)) ?? [];
+  const committed =
+    (recruiting?.signed ? 0 : (recruiting?.board ?? []).filter((p) => p.offered && p.status === "open").reduce((n, p) => n + p.ask, 0)) +
+    bids.filter((b) => b.status === "pending").reduce((n, b) => n + b.amount, 0);
+  return {
+    ...old,
+    version: STATE_VERSION,
+    program,
+    players,
+    recruiting,
+    offseason: offseason ? { ...offseason, bids } : null,
+    nilBudget: Math.max(0, Eco.capRoom(program.baseBudget, players, Eco.MIN_ROOM.season) - committed),
+  };
+}
+
 export function loadState(raw: string | null): GameState {
   if (!raw) return initialState();
   try {
@@ -1302,8 +1353,10 @@ export function loadState(raw: string | null): GameState {
     }
     // Version 8 saves predate stats and awards: league stars start from this week.
     if (parsed?.version === 8) {
-      parsed = { ...parsed, version: STATE_VERSION, league: A.makeLeague(parsed.seed, parsed.season, parsed.standings, parsed.team), awards: [], allConference: null };
+      parsed = { ...parsed, version: 9, league: A.makeLeague(parsed.seed, parsed.season, parsed.standings, parsed.team), awards: [], allConference: null };
     }
+    // Version 9 saves used pre-2026 money: re-price players, prospects, transfers and the budget.
+    if (parsed?.version === 9) parsed = rescaleEconomy(parsed);
     // Saves from before the offseason update: no offseason field, and an older report shape.
     if (parsed && parsed.offseason === undefined) parsed = { ...parsed, offseason: null };
     if (parsed?.lastOffseason) parsed = { ...parsed, lastOffseason: { ...emptyReport(), ...parsed.lastOffseason } };

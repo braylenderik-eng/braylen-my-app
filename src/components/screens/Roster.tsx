@@ -8,6 +8,7 @@ import { money } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { PlayerFace } from "../PlayerFace";
 import { statSummary } from "@/lib/game/awards";
+import { REV_SHARE_CAP } from "@/lib/game/economy";
 import { cx, Dialog, PageHeader, Panel, Stat, Tag } from "../ui";
 
 export function Roster() {
@@ -30,10 +31,14 @@ export function Roster() {
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Stat label="Offense" value={Math.round(ratings.off)} tone="gold" />
         <Stat label="Defense" value={Math.round(ratings.def)} tone="gold" />
-        <Stat label="NIL committed" value={money(nil)} />
+        <Stat label="Payroll" value={money(nil)} />
         <Stat label="Scholarships open" value={state.scholarships} />
         <Stat label="Injured" value={injured} tone={injured ? "bad" : undefined} />
       </div>
+      <p className="-mt-2 mb-5 text-sm text-muted">
+        Player budget {money(state.program.baseBudget)}: {money(state.program.revShare)} revenue share (the cap is {money(REV_SHARE_CAP)} per school, most of
+        it to football) plus {money(state.program.collective)} from the collective. Cap room to add players: <span className="text-text">{money(state.nilBudget)}</span>.
+      </p>
 
       {short.length > 0 && (
         <p className="mb-5 rounded-md border border-accent/40 bg-accent/10 px-4 py-3 text-sm">

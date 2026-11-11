@@ -1,6 +1,7 @@
 // Coaching identity and program expectations, chosen when a dynasty starts. Pure data and helpers.
 
 import { TEAMS, type TeamId } from "./data";
+import { FOOTBALL_REV_SHARE } from "./economy";
 import type { Pos } from "./roster";
 import type { DefensePlan, OffensePlan } from "./sim";
 
@@ -46,7 +47,9 @@ export type Tier = "Blue blood" | "Contender" | "Rising" | "Rebuild";
 export interface ProgramProfile {
   tier: Tier;
   winTarget: number; // regular-season wins expected
-  baseBudget: number; // NIL budget each season before results
+  baseBudget: number; // football player budget each season before results: revenue share + collective
+  revShare: number; // the school's revenue-sharing money for football (capped)
+  collective: number; // NIL from the collective and boosters on top
   prestige: number; // 0-1, used for recruiting until you have a track record
 }
 
@@ -54,16 +57,25 @@ export interface ProgramProfile {
 export function programProfile(team: TeamId): ProgramProfile {
   const t = TEAMS[team];
   const power = t.off + t.def;
-  if (power >= 172) return { tier: "Blue blood", winTarget: 10, baseBudget: 3_000_000, prestige: 0.85 };
-  if (power >= 163) return { tier: "Contender", winTarget: 9, baseBudget: 2_400_000, prestige: 0.6 };
-  if (power >= 152) return { tier: "Rising", winTarget: 7, baseBudget: 1_800_000, prestige: 0.4 };
-  return { tier: "Rebuild", winTarget: 5, baseBudget: 1_200_000, prestige: 0.2 };
+  // Everyone gets (close to) the same revenue share; the collective is where the big programs pull ahead.
+  const p = (tier: Tier, winTarget: number, revShare: number, collective: number, prestige: number): ProgramProfile => ({
+    tier,
+    winTarget,
+    revShare,
+    collective,
+    baseBudget: revShare + collective,
+    prestige,
+  });
+  if (power >= 172) return p("Blue blood", 10, FOOTBALL_REV_SHARE, 17_800_000, 0.85);
+  if (power >= 163) return p("Contender", 9, FOOTBALL_REV_SHARE, 7_800_000, 0.6);
+  if (power >= 152) return p("Rising", 7, 13_000_000, 2_500_000, 0.4);
+  return p("Rebuild", 5, 9_500_000, 1_500_000, 0.2);
 }
 
 /** How a season measured up against expectations, and what it does to next year's budget. */
 export function expectationsVerdict(wins: number, target: number) {
-  if (wins >= target + 2) return { label: "Exceeded expectations", budget: 300_000 };
-  if (wins >= target) return { label: "Met expectations", budget: 100_000 };
+  if (wins >= target + 2) return { label: "Exceeded expectations", budget: 2_000_000 };
+  if (wins >= target) return { label: "Met expectations", budget: 750_000 };
   if (wins >= target - 2) return { label: "Fell short", budget: 0 };
-  return { label: "Hot seat", budget: -250_000 };
+  return { label: "Hot seat", budget: -1_500_000 };
 }

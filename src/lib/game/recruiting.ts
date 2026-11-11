@@ -7,6 +7,7 @@
 import { TEAMS, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
 import { inRegion } from "./league";
+import { playingTime, recruitAsk } from "./economy";
 import { POS_ORDER, STARTERS, type Player, type Pos } from "./roster";
 import { ALL_TEAMS, freeNumber, makePerson } from "./season";
 
@@ -33,6 +34,7 @@ export interface Prospect {
   pitchesThisWeek: number;
   status: "open" | "signed" | "lost";
   fit?: boolean; // fits your offensive or defensive scheme
+  room?: "path" | "crowded"; // a path to start, or a crowded depth chart, at his position
   local?: boolean; // from your conference's home region
 }
 
@@ -93,24 +95,28 @@ export function createBoard(
     const r = who.rng;
     const pos = weightedPos(r, weights);
     const local = inRegion(team, who.hometown);
+    const ovr = { 5: 74, 4: 70, 3: 66, 2: 62 }[stars] + Math.floor(r() * 6);
+    const room = playingTime(players, pos, ovr + 6, STARTERS[pos]);
     return {
       id: `hs-${classSeason}-${i}`,
       name: who.name,
       pos,
       stars,
-      ovr: { 5: 74, 4: 70, 3: 66, 2: 62 }[stars] + Math.floor(r() * 6),
+      ovr,
       pot: { 5: 92, 4: 86, 3: 80, 2: 75 }[stars] + Math.floor(r() * 7),
-      ask: { 5: 250_000, 4: 100_000, 3: 30_000, 2: 10_000 }[stars] + Math.floor(r() * 4) * { 5: 50_000, 4: 25_000, 3: 10_000, 2: 3_000 }[stars],
+      ask: recruitAsk(stars, pos, r),
       hometown: who.hometown,
       rival: pick(r, others),
       // Prospects who fit your schemes lean your way; others take a little more convincing.
-      you: clamp(Math.round(48 - stars * 6 + prestige * 25 + head + (r() - 0.5) * 16 + (fit.length ? (fit.includes(pos) ? 8 : -3) : 0) + (local ? 6 : 0))),
+      // Prestige helps, but playing time, scheme fit and home region matter as much as the brand.
+      you: clamp(Math.round(52 - stars * 6 + prestige * 15 + head + (r() - 0.5) * 16 + (fit.length ? (fit.includes(pos) ? 8 : -3) : 0) + (local ? 6 : 0) + (room === "path" ? 8 : room === "crowded" ? -8 : 0))),
       them: clamp(Math.round(24 + stars * 5 + head + (r() - 0.5) * 16)),
       visited: false,
       offered: false,
       pitchesThisWeek: 0,
       status: "open" as const,
       fit: fit.includes(pos),
+      room,
       local,
     };
   });

@@ -47,7 +47,7 @@ export function RecruitingBoard({ state }: { state: GameState }) {
     >
       <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
         <Stat label="Points this week" value={active ? rec.points : "—"} tone="gold" />
-        <Stat label="NIL budget" value={money(state.nilBudget)} />
+        <Stat label="Cap room" value={money(state.nilBudget)} />
         <Stat label="Spots next season" value={spots} />
         <Stat label={rec.signed ? "Signed" : "Offers out"} value={rec.signed ? signed.length : offers} tone={rec.signed ? "good" : undefined} />
       </div>
@@ -93,7 +93,7 @@ function ProspectRow({ p, state, needs, spots, active }: { p: Prospect; state: G
       <PlayerFace id={p.id} pos={p.pos} size={44} />
       <div className="w-56 min-w-0">
         <p className="font-display text-xs tracking-wider text-gold">
-          {"★".repeat(p.stars)} {p.fit && <span className="ml-1"><Tag tone="accent">Scheme fit</Tag></span>} {p.local && <span className="ml-1"><Tag tone="muted">Home region</Tag></span>}
+          {"★".repeat(p.stars)} {p.fit && <span className="ml-1"><Tag tone="accent">Scheme fit</Tag></span>} {p.local && <span className="ml-1"><Tag tone="muted">Home region</Tag></span>} {p.room === "path" && <span className="ml-1"><Tag tone="good">Path to start</Tag></span>} {p.room === "crowded" && <span className="ml-1"><Tag tone="muted">Crowded room</Tag></span>}
         </p>
         <p className="truncate font-semibold">{p.name}</p>
         <p className="text-xs text-muted">

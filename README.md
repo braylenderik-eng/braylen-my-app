@@ -141,8 +141,42 @@ recruit you've offered, a booster pledge with strings attached, a discipline cal
 eyeing the January portal, or a top prospect asking to visit for your home game. Each has choices with real effects;
 anything unanswered resolves with the default at its deadline.
 
-Simplifications: the game tracks ~40 key players (real rosters are capped at 105), and the "NIL budget" is the money
-still uncommitted for new revenue-share/NIL deals, not the full ~$20.5M cap.
+**Money at 2026-27 scale.** Two sources pay players:
+
+- **Revenue sharing** from the school, capped at $21.58M per school, with about 75% going to football. Every school
+  gets about the same; smaller programs fund a bit less.
+- **Collective and booster NIL** on top. This is where the big programs pull ahead. Player budgets by tier:
+
+  | Tier | Player budget |
+  | --- | --- |
+  | Blue blood | ~$34M |
+  | Contender | ~$24M |
+  | Rising | ~$15.5M |
+  | Rebuild | ~$11M |
+
+Pay follows position and rating:
+
+| Player | Pay |
+| --- | --- |
+| Elite quarterback | $4–6.5M |
+| Star edge rusher / WR / OT | $1.5–3M |
+| Typical starter | $300K–$1M |
+| Backup | under $150K |
+
+Recruits ask $0.6–2.2M (5-star), $150–400K (4-star) and $30–80K (3-star). Transfers ask their market value plus a
+portal premium.
+
+**Parity.** Big money doesn't buy everyone:
+
+- **Good rosters are expensive to keep.** Players who develop get raises each offseason, so a blue blood's cap room
+  (budget minus payroll) ends up close to everyone else's, about $3–6M to start.
+- **Playing time matters.** Recruits and transfers who see a path to start lean your way; a crowded depth chart
+  pushes them off, whatever you pay.
+- **Prestige counts less** in a recruit's starting interest than it used to. Fit, region, pitches and visits matter as much.
+- **The rival schools** recruiting against you are spread across all 40 programs.
+
+Simplification: the game tracks ~40 key players (real rosters are capped at 105), so its payrolls cover the players
+who take most of a real budget.
 
 ## Getting started
 

@@ -57,7 +57,7 @@ export function Carousel({ state }: { state: GameState }) {
                 <div className="min-w-0">
                   <p className="truncate font-semibold">{TEAMS[o.team].name}</p>
                   <p className="font-display text-[11px] tracking-wider text-muted">
-                    {TEAMS[o.team].conf} · {p.tier} · {p.winTarget} wins expected · NIL {money(p.baseBudget)}
+                    {TEAMS[o.team].conf} · {p.tier} · {p.winTarget} wins expected · {money(p.baseBudget)} budget
                   </p>
                 </div>
               </div>

@@ -2,6 +2,7 @@
 
 import { TEAMS, type Skill, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
+import { marketValue } from "./economy";
 
 export type Pos = "QB" | "RB" | "WR" | "TE" | "OT" | "IOL" | "EDGE" | "DT" | "LB" | "CB" | "S" | "K" | "P";
 export type Year = "Fr" | "So" | "Jr" | "Sr";
@@ -43,44 +44,45 @@ export const SIDE: Record<Pos, "off" | "def" | "st"> = {
   QB: "off", RB: "off", WR: "off", TE: "off", OT: "off", IOL: "off", EDGE: "def", DT: "def", LB: "def", CB: "def", S: "def", K: "st", P: "st",
 };
 
-const p = (id: string, name: string, num: number, pos: Pos, yr: Year, ovr: number, hometown: string, nil: number): Player => ({ id, name, num, pos, yr, ovr, hometown, nil });
+// Pay comes from market value (position and rating).
+const p = (id: string, name: string, num: number, pos: Pos, yr: Year, ovr: number, hometown: string): Player => ({ id, name, num, pos, yr, ovr, hometown, nil: marketValue(pos, ovr, id) });
 
 /** The Stallions, listed in default depth order within each position. */
 export const ROSTER: Player[] = [
-  p("whitfield", "Tate Whitfield", 7, "QB", "Jr", 86, "Abilene, TX", 420_000),
-  p("rusk", "Caleb Rusk", 12, "QB", "So", 74, "Lubbock, TX", 60_000),
-  p("lyle", "Marcus Lyle", 22, "RB", "Jr", 84, "Tyler, TX", 180_000),
-  p("ortiz", "Jaylen Ortiz", 28, "RB", "Fr", 77, "El Paso, TX", 40_000),
-  p("shaw", "Devin Shaw", 1, "WR", "Sr", 87, "Houston, TX", 260_000),
-  p("grant", "Isaiah Grant", 5, "WR", "Jr", 83, "Shreveport, LA", 140_000),
-  p("valdez", "Rico Valdez", 11, "WR", "So", 80, "San Antonio, TX", 85_000),
-  p("thornton", "Malik Thornton", 84, "WR", "Fr", 75, "Waco, TX", 30_000),
-  p("pruitt", "Owen Pruitt", 88, "TE", "Sr", 81, "Midland, TX", 70_000),
-  p("kessler", "Brady Kessler", 85, "TE", "So", 72, "Tulsa, OK", 20_000),
-  p("hart", "Nolan Hart", 74, "OT", "Sr", 85, "Amarillo, TX", 150_000),
-  p("marquez", "Andre Marquez", 76, "OT", "Jr", 82, "Laredo, TX", 90_000),
-  p("ivers", "Luke Ivers", 71, "OT", "So", 74, "Odessa, TX", 25_000),
-  p("pulaski", "Grant Pulaski", 65, "IOL", "Jr", 81, "Fort Worth, TX", 60_000),
-  p("salas", "Diego Salas", 55, "IOL", "Sr", 80, "Corpus Christi, TX", 55_000),
-  p("brandt", "Kyle Brandt", 62, "IOL", "Jr", 79, "Plano, TX", 45_000),
-  p("vu", "Tommy Vu", 68, "IOL", "Fr", 71, "Garland, TX", 15_000),
-  p("okoye", "Trey Okoye", 9, "EDGE", "Sr", 85, "Dallas, TX", 230_000),
-  p("pierce", "Jamal Pierce", 44, "EDGE", "Jr", 80, "Beaumont, TX", 75_000),
-  p("dunn", "Xavier Dunn", 49, "EDGE", "Fr", 73, "Killeen, TX", 25_000),
-  p("mosley", "Raymond Mosley", 95, "DT", "Sr", 82, "Texarkana, TX", 80_000),
-  p("leota", "Tavita Leota", 92, "DT", "Jr", 80, "Euless, TX", 65_000),
-  p("brooks", "Elijah Brooks", 97, "DT", "So", 72, "Bryan, TX", 20_000),
-  p("buckner", "Cam Buckner", 34, "LB", "Jr", 80, "Arlington, TX", 70_000),
-  p("gaines", "Hunter Gaines", 42, "LB", "Sr", 79, "Round Rock, TX", 55_000),
-  p("reyes", "Mason Reyes", 36, "LB", "So", 71, "McAllen, TX", 15_000),
-  p("vance", "Reggie Vance", 3, "CB", "Jr", 83, "Baton Rouge, LA", 160_000),
-  p("webb", "Darnell Webb", 21, "CB", "Sr", 81, "Longview, TX", 90_000),
-  p("sims", "Kobe Sims", 24, "CB", "So", 74, "Temple, TX", 25_000),
-  p("ellis", "Jordan Ellis", 2, "S", "Sr", 82, "Austin, TX", 95_000),
-  p("clarke", "Tyson Clarke", 8, "S", "Jr", 79, "Denton, TX", 50_000),
-  p("ferrante", "Nico Ferrante", 27, "S", "Fr", 70, "Kerrville, TX", 10_000),
-  p("delgado", "Sam Delgado", 39, "K", "Jr", 80, "Brownsville, TX", 20_000),
-  p("eriksen", "Lars Eriksen", 38, "P", "Sr", 77, "Sugar Land, TX", 15_000),
+  p("whitfield", "Tate Whitfield", 7, "QB", "Jr", 86, "Abilene, TX"),
+  p("rusk", "Caleb Rusk", 12, "QB", "So", 74, "Lubbock, TX"),
+  p("lyle", "Marcus Lyle", 22, "RB", "Jr", 84, "Tyler, TX"),
+  p("ortiz", "Jaylen Ortiz", 28, "RB", "Fr", 77, "El Paso, TX"),
+  p("shaw", "Devin Shaw", 1, "WR", "Sr", 87, "Houston, TX"),
+  p("grant", "Isaiah Grant", 5, "WR", "Jr", 83, "Shreveport, LA"),
+  p("valdez", "Rico Valdez", 11, "WR", "So", 80, "San Antonio, TX"),
+  p("thornton", "Malik Thornton", 84, "WR", "Fr", 75, "Waco, TX"),
+  p("pruitt", "Owen Pruitt", 88, "TE", "Sr", 81, "Midland, TX"),
+  p("kessler", "Brady Kessler", 85, "TE", "So", 72, "Tulsa, OK"),
+  p("hart", "Nolan Hart", 74, "OT", "Sr", 85, "Amarillo, TX"),
+  p("marquez", "Andre Marquez", 76, "OT", "Jr", 82, "Laredo, TX"),
+  p("ivers", "Luke Ivers", 71, "OT", "So", 74, "Odessa, TX"),
+  p("pulaski", "Grant Pulaski", 65, "IOL", "Jr", 81, "Fort Worth, TX"),
+  p("salas", "Diego Salas", 55, "IOL", "Sr", 80, "Corpus Christi, TX"),
+  p("brandt", "Kyle Brandt", 62, "IOL", "Jr", 79, "Plano, TX"),
+  p("vu", "Tommy Vu", 68, "IOL", "Fr", 71, "Garland, TX"),
+  p("okoye", "Trey Okoye", 9, "EDGE", "Sr", 85, "Dallas, TX"),
+  p("pierce", "Jamal Pierce", 44, "EDGE", "Jr", 80, "Beaumont, TX"),
+  p("dunn", "Xavier Dunn", 49, "EDGE", "Fr", 73, "Killeen, TX"),
+  p("mosley", "Raymond Mosley", 95, "DT", "Sr", 82, "Texarkana, TX"),
+  p("leota", "Tavita Leota", 92, "DT", "Jr", 80, "Euless, TX"),
+  p("brooks", "Elijah Brooks", 97, "DT", "So", 72, "Bryan, TX"),
+  p("buckner", "Cam Buckner", 34, "LB", "Jr", 80, "Arlington, TX"),
+  p("gaines", "Hunter Gaines", 42, "LB", "Sr", 79, "Round Rock, TX"),
+  p("reyes", "Mason Reyes", 36, "LB", "So", 71, "McAllen, TX"),
+  p("vance", "Reggie Vance", 3, "CB", "Jr", 83, "Baton Rouge, LA"),
+  p("webb", "Darnell Webb", 21, "CB", "Sr", 81, "Longview, TX"),
+  p("sims", "Kobe Sims", 24, "CB", "So", 74, "Temple, TX"),
+  p("ellis", "Jordan Ellis", 2, "S", "Sr", 82, "Austin, TX"),
+  p("clarke", "Tyson Clarke", 8, "S", "Jr", 79, "Denton, TX"),
+  p("ferrante", "Nico Ferrante", 27, "S", "Fr", 70, "Kerrville, TX"),
+  p("delgado", "Sam Delgado", 39, "K", "Jr", 80, "Brownsville, TX"),
+  p("eriksen", "Lars Eriksen", 38, "P", "Sr", 77, "Sugar Land, TX"),
 ];
 
 export const INITIAL_INJURIES: Record<string, Injury> = {
@@ -168,7 +170,7 @@ export function rosterFor(team: TeamId, seed: number): Player[] {
     used.add(num);
     const first = FIRST_NAMES[Math.floor(rng() * FIRST_NAMES.length)];
     const last = LAST_NAMES[Math.floor(rng() * LAST_NAMES.length)];
-    return { ...tpl, id: `${team}-${i}`, name: `${first} ${last}`, num, ovr, nil: Math.round((tpl.nil * (0.6 + rng() * 0.8)) / 5_000) * 5_000, hometown: HOMETOWNS[Math.floor(rng() * HOMETOWNS.length)] };
+    return { ...tpl, id: `${team}-${i}`, name: `${first} ${last}`, num, ovr, nil: marketValue(tpl.pos, ovr, `${team}-${i}`), hometown: HOMETOWNS[Math.floor(rng() * HOMETOWNS.length)] };
   });
 }
 

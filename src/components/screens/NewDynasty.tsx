@@ -122,7 +122,7 @@ export function NewDynasty() {
                       <span className="mt-1 flex flex-wrap items-center gap-1.5">
                         <Tag tone={TIER_TONE[p.tier]}>{p.tier}</Tag>
                         <span className="font-display text-[11px] tracking-wider text-dim">
-                          {p.winTarget} wins expected · NIL {money(p.baseBudget)}
+                          {p.winTarget} wins expected · {money(p.baseBudget)} budget
                         </span>
                       </span>
                     </span>
@@ -175,7 +175,7 @@ export function NewDynasty() {
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
             <Stat label="Program" value={programProfile(team).tier} tone="gold" />
             <Stat label="Win target" value={programProfile(team).winTarget} />
-            <Stat label="NIL budget" value={money(programProfile(team).baseBudget)} tone="good" />
+            <Stat label="Player budget" value={money(programProfile(team).baseBudget)} tone="good" />
             <Stat label="Offense" value={OFFENSE_STYLES[offense].name} />
             <Stat label="Defense" value={DEFENSE_STYLES[defense].name} />
           </div>

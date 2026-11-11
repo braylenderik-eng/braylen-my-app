@@ -58,7 +58,7 @@ export function News() {
             <Stat label="Season" value={state.season} />
             <Stat label="Hype" value={state.hype} />
             <Stat label="Trust" value={state.mediaTrust} />
-            <Stat label="NIL" value={money(state.nilBudget)} />
+            <Stat label="Cap room" value={money(state.nilBudget)} />
           </div>
           <div className="mt-4 space-y-2">
             {answers.map((a) => {

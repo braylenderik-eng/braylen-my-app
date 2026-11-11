@@ -157,7 +157,7 @@ function Preview({ state }: { state: GameState }) {
             <Row label="Committee rank" value={`#${me.rank} · ${me.rank <= 12 ? "in the field" : "outside"}`} />
             <Row label="Record" value={`${me.wins}–${me.losses}`} />
             <Row label="Strength of schedule" value={me.sos.toFixed(3).replace(/^0/, "")} />
-            <Row label="NIL budget" value={money(state.nilBudget)} />
+            <Row label="Cap room" value={money(state.nilBudget)} />
             <Row label="Scholarships open" value={String(state.scholarships)} />
           </div>
         </Panel>
@@ -271,7 +271,7 @@ function ProgramCard({ state }: { state: GameState }) {
         <Stat label="Defense" value={DEFENSE_STYLES[coach.defense].name} />
       </div>
       <p className="mt-3 text-sm text-muted">
-        Calling your scheme&apos;s game plan gives a small edge. Meeting the win target grows next year&apos;s NIL budget and your job
+        Calling your scheme&apos;s game plan gives a small edge. Meeting the win target grows next year&apos;s player budget and your job
         security; missing it drains both, and at zero security you&apos;re fired. Big seasons bring offers from bigger programs.
       </p>
     </Panel>
@@ -290,7 +290,7 @@ function NewSeason({ state }: { state: GameState }) {
           <Stat label="Preseason rank" value={`#${me.rank}`} tone="gold" />
           <Stat label="Graduated" value={r.graduated.length} />
           <Stat label="Newcomers" value={r.transfersIn.length + r.enrolled.length + r.walkOns.length} tone="good" />
-          <Stat label="NIL budget" value={money(state.nilBudget)} />
+          <Stat label="Cap room" value={money(state.nilBudget)} />
         </div>
         <p className="mt-3 text-sm text-muted">
           {r.enrolled.length} December signee{r.enrolled.length === 1 ? "" : "s"} enrolled, {r.transfersIn.length} transfer{r.transfersIn.length === 1 ? "" : "s"} signed in January

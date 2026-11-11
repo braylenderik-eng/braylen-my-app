@@ -4,6 +4,7 @@
 
 import { TEAMS, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
+import { retentionCost } from "./economy";
 import { POS_LABEL, STARTERS, type Injury, type Player, type Pos } from "./roster";
 import type { RecruitingState } from "./recruiting";
 
@@ -100,7 +101,7 @@ const flip: Builder = (w, rng, taken) => {
 };
 
 const booster: Builder = (w, rng) => {
-  const amount = (150 + Math.floor(rng() * 5) * 50) * 1000;
+  const amount = (500 + Math.floor(rng() * 5) * 250) * 1000; // $500K - $1.5M
   return {
     id: "",
     kind: "booster",
@@ -145,7 +146,7 @@ const playingTime: Builder = (w, rng, taken) => {
   const pool = w.players.filter((p) => !starters.has(p.id) && (p.yr === "So" || p.yr === "Jr") && p.ovr >= 72 && !p.promised && !p.frustrated && !taken.has(p.id));
   if (!pool.length) return null;
   const p = pick(rng, pool);
-  const cost = 40_000 + Math.max(0, p.ovr - 72) * 10_000;
+  const cost = retentionCost(p.pos, p.ovr, p.id);
   return {
     id: "",
     kind: "playingTime",

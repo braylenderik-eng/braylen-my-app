@@ -24,7 +24,7 @@ export function OffseasonHub({ state }: { state: GameState }) {
     {
       title: newJob ? "New job" : "Graduation, development & enrollment",
       body: newJob
-        ? `You took over the ${TEAMS[state.team].name}. You inherit their roster, an NIL budget of ${money(state.program.baseBudget)} and a ${state.program.winTarget}-win target.`
+        ? `You took over the ${TEAMS[state.team].name}. You inherit their roster, a ${money(state.program.baseBudget)} player budget and a ${state.program.winTarget}-win target.`
         : `${r.graduated.length} seniors graduated. ${r.progressed.length} players improved${
         gains.length ? ` — biggest: ${gains.map((g) => `${g.player.name} ${g.from}→${g.to}`).join(", ")}` : ""
       }. ${r.enrolled.length ? `${r.enrolled.length} signee${r.enrolled.length === 1 ? "" : "s"} from December enrolled.` : "No December signees to enroll."}`,
@@ -59,7 +59,7 @@ export function OffseasonHub({ state }: { state: GameState }) {
   return (
     <Panel kicker={`Heading into Season ${next}`} title="Offseason">
       <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat label="NIL budget" value={money(state.nilBudget)} tone="gold" />
+        <Stat label="Cap room" value={money(state.nilBudget)} tone="gold" />
         <Stat label="Roster spots open" value={rosterSpots(state)} />
         <Stat label="Roster" value={`${state.players.length}/${ROSTER_MAX}`} />
         <Stat label="Transfers signed" value={signedTransfers} tone="good" />

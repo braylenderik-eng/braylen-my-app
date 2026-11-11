@@ -41,7 +41,9 @@ describe("January transfer window", () => {
     let s = toOffseason(22);
     const budget = s.nilBudget;
     const spots = rosterSpots(s);
-    const targets = off(s).pool.slice(0, 3);
+    // The three cheapest transfers, so all three bids fit the budget.
+    const targets = [...off(s).pool].sort((a, b) => a.ask - b.ask).slice(0, 3);
+    expect(targets.reduce((n, t) => n + t.ask, 0)).toBeLessThanOrEqual(budget);
     for (const t of targets) s = reducer(s, { type: "offseason/bid", id: t.id });
     expect(s.nilBudget).toBe(budget - targets.reduce((n, t) => n + t.ask, 0));
     expect(rosterSpots(s)).toBe(spots - 3);
@@ -107,7 +109,9 @@ describe("saves", () => {
     expect(loaded.version).toBe(STATE_VERSION);
     expect((loaded as unknown as { rook?: unknown }).rook).toBeUndefined();
     expect(loaded.scenarios).toEqual({ open: [], log: [] });
-    expect(loaded.nilBudget).toBe(2_100_000);
+    // Old saves are re-priced at 2026-27 scale.
+    expect(loaded.nilBudget).toBeGreaterThan(1_000_000);
+    expect(loaded.players.find((p) => p.pos === "QB")!.nil).toBeGreaterThan(1_000_000);
     expect(loaded.recruiting?.signed).toBe(false);
   });
 });

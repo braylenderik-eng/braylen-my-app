@@ -32,7 +32,7 @@ function PortalWatch() {
 
       <div className="mb-5 rounded-lg border border-line bg-panel px-4 py-3 text-sm leading-6 text-muted">
         College football has one transfer window, in early January — there&apos;s no in-season or spring window. Use the season to scout who&apos;s
-        expected to enter; you can bid once the window opens in the offseason, with next year&apos;s NIL budget.
+        expected to enter; you can bid once the window opens in the offseason, with next year&apos;s cap room.
       </div>
 
       <Panel kicker="Expected to enter" title={list.length ? `${list.length} players on your radar` : "Watch list"} bodyClassName="p-0">
