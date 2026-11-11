@@ -1,37 +1,34 @@
 "use client";
 
-import { rookOpen, type PressChoice } from "@/lib/game/state";
+import { type PressChoice } from "@/lib/game/state";
 import { money } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { cx, PageHeader, Panel, Stat, Tag } from "../ui";
 
 export function News() {
   const { state, dispatch } = useGame();
-  const open = rookOpen(state);
-  const { decision, outcome } = state.rook;
-  const question =
-    state.season > 1
-      ? `Coach, Season ${state.season}. The fans expect more after last year. What's the message?`
-      : open
-        ? "Coach, Bayou put $1.1M in front of Jalen Rook and he's still committed to you. Are you matching before Early Signing Day?"
-        : outcome === "flipped"
-          ? "Coach, Rook signed with Bayou. Was holding firm the plan, or did they just outbid you?"
-          : decision === "match" || outcome === "signed"
-            ? "Coach, $1.1M for a high schooler. Worth it with a playoff spot on the line?"
-            : "Coach, you held at $850K for Rook. Confident he signs?";
+  const last = [...state.recaps].reverse().find((r) => r.game);
+  const lastResult = last?.game ? (last.game.home === "stallions" ? last.game.homeScore - last.game.awayScore : last.game.awayScore - last.game.homeScore) : null;
+  const question = state.offseason
+    ? "Coach, the January window is open. How aggressive will you be in the portal?"
+    : lastResult === null
+      ? `Coach, Season ${state.season}. What's the message to the fans this week?`
+      : lastResult > 0
+        ? "Coach, big win last week. Is this team a real contender?"
+        : "Coach, tough loss last week. What has to change?";
 
   const answers: { id: PressChoice; quote: string; effect: string }[] = [
     {
       id: "match",
-      quote: state.season > 1 ? "We're here to win it all. Nothing less." : "We're matching. Stallions finish what we start.",
-      effect: open ? "Rook interest up · −$50K budget · fan reaction +" : "Hype up · fans buy in",
+      quote: "We're here to win it all. Nothing less.",
+      effect: "Hype up · fans buy in · a little extra pressure",
     },
     {
       id: "board",
-      quote: state.season > 1 ? "We trust the process and our young guys." : "We trust our board and our budget.",
-      effect: open ? "Rook interest down · save budget · locker room calm" : "Budget stays put · locker room calm",
+      quote: "We trust the process. One game at a time.",
+      effect: "Media trust up · locker room calm",
     },
-    { id: "nocomment", quote: state.season > 1 ? "We'll let the games do the talking." : "No comment on recruiting dollars.", effect: "Neutral · media trust down slightly" },
+    { id: "nocomment", quote: "We'll let the games do the talking.", effect: "Neutral · media trust down slightly" },
   ];
 
   return (
@@ -57,7 +54,7 @@ export function News() {
             <span className="font-display mr-1 text-xs tracking-widest text-accent-hi">Reporter</span> {question}
           </p>
           <div className="mt-4 grid grid-cols-4 gap-2">
-            {state.season === 1 ? <Stat label="Rook int" value={`${state.rook.interest}%`} /> : <Stat label="Season" value={state.season} />}
+            <Stat label="Season" value={state.season} />
             <Stat label="Hype" value={state.hype} />
             <Stat label="Trust" value={state.mediaTrust} />
             <Stat label="NIL" value={money(state.nilBudget)} />

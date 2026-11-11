@@ -4,7 +4,14 @@ export type TeamId =
   | "gulf" | "summit" | "bluegrass" | "prairie" | "canyon" | "lakeshore" | "piedmont"
   | "metro" | "desert" | "bayou" | "stallions" | "pacific" | "heartland" | "capitol"
   | "iron" | "coastline" | "rangers"
-  | "ozark" | "tidewater" | "drovers";
+  | "ozark" | "tidewater" | "drovers"
+  // Expansion teams (the league grows to 40 so a 24-team playoff field makes sense)
+  | "cypress" | "gulfport" | "pinewood" | "bayoucity"
+  | "highdesert" | "silverpeak" | "sagebrush" | "copper"
+  | "blueridge" | "chesapeake" | "seaboard"
+  | "panhandle" | "hillcountry" | "brazos"
+  | "palmetto" | "emerald" | "lowcountry"
+  | "flinthills" | "sandhills" | "badlands";
 
 export interface Team {
   id: TeamId;
@@ -14,32 +21,65 @@ export interface Team {
   color: string; // badge color
   off: number; // offense rating, 0-100
   def: number; // defense rating, 0-100
-  ranked: boolean; // part of the committee rankings table
+  ranked: boolean; // in the Season 1 committee table
 }
 
 export const USER_TEAM: TeamId = "stallions";
 
+/** Four "Power" conferences of eight; two smaller conferences of four (the game's Group of Six). */
+export const POWER_CONFS = ["Delta League", "Redrock Circuit", "Atlantic Circuit", "Mesa League"] as const;
+export const GROUP_CONFS = ["Sun Coast Conference", "Plains Athletic"] as const;
+export const isPowerConf = (conf: string) => (POWER_CONFS as readonly string[]).includes(conf);
+
+const t = (id: TeamId, name: string, short: string, conf: string, color: string, off: number, def: number, ranked = false): Team => ({ id, name, short, conf, color, off, def, ranked });
+
 export const TEAMS: Record<TeamId, Team> = {
-  gulf: { id: "gulf", name: "Gulf Coast Mariners", short: "GCM", conf: "Delta League", color: "#0e7490", off: 90, def: 88, ranked: true },
-  summit: { id: "summit", name: "Summit State Peaks", short: "SSP", conf: "Redrock Circuit", color: "#4f46e5", off: 89, def: 86, ranked: true },
-  bluegrass: { id: "bluegrass", name: "Bluegrass Colonels", short: "BGC", conf: "East Corridor", color: "#1d4ed8", off: 86, def: 87, ranked: true },
-  prairie: { id: "prairie", name: "Prairie Bison", short: "PRB", conf: "Midwest Circuit", color: "#92400e", off: 85, def: 86, ranked: true },
-  canyon: { id: "canyon", name: "Canyon Scorpions", short: "CYS", conf: "Redrock Circuit", color: "#c2410c", off: 87, def: 83, ranked: true },
-  lakeshore: { id: "lakeshore", name: "Lakeshore Lancers", short: "LKL", conf: "North Circuit", color: "#15803d", off: 84, def: 85, ranked: true },
-  piedmont: { id: "piedmont", name: "Piedmont Foxes", short: "PDF", conf: "Atlantic Circuit", color: "#b45309", off: 85, def: 84, ranked: true },
-  metro: { id: "metro", name: "Metro Hawks", short: "MTH", conf: "Atlantic Circuit", color: "#7c3aed", off: 85, def: 83, ranked: true },
-  desert: { id: "desert", name: "Desert Falcons", short: "DSF", conf: "Redrock Circuit", color: "#a16207", off: 83, def: 82, ranked: true },
-  bayou: { id: "bayou", name: "Bayou Kings", short: "BYK", conf: "Delta League", color: "#6d28d9", off: 84, def: 83, ranked: true },
-  stallions: { id: "stallions", name: "Lone Star Stallions", short: "LSS", conf: "Mesa League", color: "#c8102e", off: 84, def: 81, ranked: true },
-  pacific: { id: "pacific", name: "Pacific Titans", short: "PCT", conf: "West Coast Alliance", color: "#0369a1", off: 83, def: 81, ranked: true },
-  heartland: { id: "heartland", name: "Heartland Wolves", short: "HLW", conf: "Midwest Circuit", color: "#475569", off: 82, def: 83, ranked: true },
-  capitol: { id: "capitol", name: "Capitol Statesmen", short: "CAP", conf: "East Corridor", color: "#1e3a8a", off: 79, def: 80, ranked: true },
-  iron: { id: "iron", name: "Iron Range Forge", short: "IRF", conf: "North Circuit", color: "#57534e", off: 80, def: 82, ranked: true },
-  coastline: { id: "coastline", name: "Coastline Storm", short: "CLS", conf: "Coastal Circuit", color: "#0891b2", off: 81, def: 79, ranked: true },
-  rangers: { id: "rangers", name: "Red River Rangers", short: "RRR", conf: "Mesa League", color: "#b91c1c", off: 79, def: 77, ranked: true },
-  ozark: { id: "ozark", name: "Ozark Rivermen", short: "OZR", conf: "Mesa League", color: "#3f6212", off: 72, def: 71, ranked: false },
-  tidewater: { id: "tidewater", name: "Tidewater Admirals", short: "TWA", conf: "Coastal Circuit", color: "#155e75", off: 71, def: 73, ranked: false },
-  drovers: { id: "drovers", name: "Great Plains Drovers", short: "GPD", conf: "Midwest Circuit", color: "#78350f", off: 70, def: 72, ranked: false },
+  // Delta League
+  gulf: t("gulf", "Gulf Coast Mariners", "GCM", "Delta League", "#0e7490", 90, 88, true),
+  bayou: t("bayou", "Bayou Kings", "BYK", "Delta League", "#6d28d9", 84, 83, true),
+  coastline: t("coastline", "Coastline Storm", "CLS", "Delta League", "#0891b2", 81, 79, true),
+  iron: t("iron", "Iron Range Forge", "IRF", "Delta League", "#57534e", 80, 82, true),
+  cypress: t("cypress", "Cypress Bend Herons", "CBH", "Delta League", "#047857", 78, 77),
+  gulfport: t("gulfport", "Gulfport Privateers", "GPV", "Delta League", "#1e40af", 76, 78),
+  pinewood: t("pinewood", "Pinewood Rattlers", "PWR", "Delta League", "#3f6212", 77, 74),
+  bayoucity: t("bayoucity", "Bayou City Barons", "BCB", "Delta League", "#9f1239", 75, 76),
+  // Redrock Circuit
+  summit: t("summit", "Summit State Peaks", "SSP", "Redrock Circuit", "#4f46e5", 89, 86, true),
+  canyon: t("canyon", "Canyon Scorpions", "CYS", "Redrock Circuit", "#c2410c", 87, 83, true),
+  desert: t("desert", "Desert Falcons", "DSF", "Redrock Circuit", "#a16207", 83, 82, true),
+  pacific: t("pacific", "Pacific Titans", "PCT", "Redrock Circuit", "#0369a1", 83, 81, true),
+  highdesert: t("highdesert", "High Desert Coyotes", "HDC", "Redrock Circuit", "#b45309", 79, 76),
+  silverpeak: t("silverpeak", "Silver Peak Miners", "SPM", "Redrock Circuit", "#64748b", 76, 78),
+  sagebrush: t("sagebrush", "Sagebrush Wranglers", "SBW", "Redrock Circuit", "#65a30d", 75, 75),
+  copper: t("copper", "Copper Basin Rams", "CBR", "Redrock Circuit", "#c2410c", 77, 73),
+  // Atlantic Circuit
+  piedmont: t("piedmont", "Piedmont Foxes", "PDF", "Atlantic Circuit", "#b45309", 85, 84, true),
+  metro: t("metro", "Metro Hawks", "MTH", "Atlantic Circuit", "#7c3aed", 85, 83, true),
+  bluegrass: t("bluegrass", "Bluegrass Colonels", "BGC", "Atlantic Circuit", "#1d4ed8", 86, 87, true),
+  capitol: t("capitol", "Capitol Statesmen", "CAP", "Atlantic Circuit", "#1e3a8a", 79, 80, true),
+  lakeshore: t("lakeshore", "Lakeshore Lancers", "LKL", "Atlantic Circuit", "#15803d", 84, 85, true),
+  blueridge: t("blueridge", "Blue Ridge Highlanders", "BRH", "Atlantic Circuit", "#0f766e", 78, 79),
+  chesapeake: t("chesapeake", "Chesapeake Watermen", "CHW", "Atlantic Circuit", "#1d4ed8", 76, 77),
+  seaboard: t("seaboard", "Seaboard Clippers", "SBC", "Atlantic Circuit", "#be123c", 77, 75),
+  // Mesa League
+  stallions: t("stallions", "Lone Star Stallions", "LSS", "Mesa League", "#c8102e", 84, 81, true),
+  rangers: t("rangers", "Red River Rangers", "RRR", "Mesa League", "#b91c1c", 79, 77, true),
+  prairie: t("prairie", "Prairie Bison", "PRB", "Mesa League", "#92400e", 85, 86, true),
+  heartland: t("heartland", "Heartland Wolves", "HLW", "Mesa League", "#475569", 82, 83, true),
+  ozark: t("ozark", "Ozark Rivermen", "OZR", "Mesa League", "#3f6212", 72, 71),
+  panhandle: t("panhandle", "Panhandle Plainsmen", "PHP", "Mesa League", "#a16207", 77, 76),
+  hillcountry: t("hillcountry", "Hill Country Bucks", "HCB", "Mesa League", "#7c2d12", 78, 75),
+  brazos: t("brazos", "Brazos Valley Rustlers", "BVR", "Mesa League", "#991b1b", 75, 77),
+  // Sun Coast Conference
+  tidewater: t("tidewater", "Tidewater Admirals", "TWA", "Sun Coast Conference", "#155e75", 71, 73),
+  palmetto: t("palmetto", "Palmetto Coast Pelicans", "PCP", "Sun Coast Conference", "#0284c7", 73, 70),
+  emerald: t("emerald", "Emerald Coast Marlins", "ECM", "Sun Coast Conference", "#059669", 70, 71),
+  lowcountry: t("lowcountry", "Low Country Egrets", "LCE", "Sun Coast Conference", "#0e7490", 68, 70),
+  // Plains Athletic
+  drovers: t("drovers", "Great Plains Drovers", "GPD", "Plains Athletic", "#78350f", 70, 72),
+  flinthills: t("flinthills", "Flint Hills Thunder", "FHT", "Plains Athletic", "#6b21a8", 72, 69),
+  sandhills: t("sandhills", "Sandhills Cranes", "SHC", "Plains Athletic", "#a3a3a3", 67, 70),
+  badlands: t("badlands", "Badlands Broncs", "BDB", "Plains Athletic", "#854d0e", 69, 68),
 };
 
 /** Committee standing at the start of the save (Week 11, before games). */
@@ -63,6 +103,7 @@ export const INITIAL_STANDINGS: { id: TeamId; wins: number; losses: number; sos:
   { id: "rangers", wins: 7, losses: 4, sos: 0.548, prevRank: 17 },
 ];
 
+/** Season 1 is the 2026 season (12-team playoff); from 2027-28 the playoff is 24 teams. */
 export const PLAYOFF_FIELD = 12;
 export const BYE_SEEDS = 4;
 export const FIRST_WEEK = 11;
@@ -203,29 +244,6 @@ export const SCOUTING: Partial<Record<TeamId, { scheme: string; notes: string[];
 };
 
 // ---- Recruiting & portal ---------------------------------------------------------
-
-export interface RookOffer {
-  school: string;
-  conf: string;
-  offer: number;
-  interest: number;
-  rank: string;
-  you?: boolean;
-}
-
-// Season 1 scenario: Jalen Rook, a 5-star QB committed to the Stallions. Bayou Kings have offered more
-// than his current deal; his camp wants it matched before the early signing period (Dec 2-4) or he flips.
-export const ROOK_OFFERS: RookOffer[] = [
-  { school: "Bayou Kings", conf: "Delta League · conf champ", offer: 1_100_000, interest: 74, rank: "#4" },
-  { school: "Lone Star Stallions", conf: "YOU · Mesa League · committed", offer: 850_000, interest: 68, rank: "#11", you: true },
-  { school: "Pacific Titans", conf: "West Coast Alliance", offer: 780_000, interest: 51, rank: "#9" },
-  { school: "Heartland Wolves", conf: "Midwest Circuit", offer: 640_000, interest: 33, rank: "#18" },
-  { school: "Metro Hawks", conf: "Atlantic Circuit", offer: 510_000, interest: 22, rank: "#7" },
-];
-
-export const ROOK_ASK = 1_100_000; // match Bayou
-export const ROOK_CURRENT = 850_000; // what he committed for
-export const ROOK = { id: "rook", name: "Jalen Rook", pos: "QB", ovr: 96, pot: 98, hometown: "Austin, TX" } as const;
 
 /** Season 1 "portal watch": players expected to enter the January transfer window. */
 export interface PortalPlayer {

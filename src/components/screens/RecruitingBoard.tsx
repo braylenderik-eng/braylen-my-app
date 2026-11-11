@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { TEAMS } from "@/lib/game/data";
-import { commitChance, MAX_PITCHES_PER_WEEK, PITCH_COST, SIGNING_DAY, VISIT_COST, type Prospect } from "@/lib/game/recruiting";
+import { commitChance, MAX_PITCHES_PER_WEEK, PITCH_COST, VISIT_COST, type Prospect } from "@/lib/game/recruiting";
 import { POS_LABEL, STARTERS, type Pos } from "@/lib/game/roster";
-import { rosterSpots, type GameState } from "@/lib/game/state";
+import { keyDates, rosterSpots, type GameState } from "@/lib/game/state";
 import { money, pct } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { Button, cx, Panel, Stat, Tag } from "../ui";
@@ -39,7 +39,7 @@ export function RecruitingBoard({ state }: { state: GameState }) {
       title={rec.signed ? "Signing Day results" : "Recruiting board"}
       right={
         <span className="font-display text-xs tracking-widest text-muted">
-          {rec.signed ? `Signed ${signed.length}` : `Week ${Math.min(rec.week, rec.weeks)} of ${rec.weeks} · Early Signing Day ${SIGNING_DAY}`}
+          {rec.signed ? `Signed ${signed.length}` : `Week ${Math.min(rec.week, rec.weeks)} of ${rec.weeks} · Early Signing Day ${keyDates(state.season).signingDay}`}
         </span>
       }
       bodyClassName="p-0"
@@ -119,6 +119,7 @@ function ProspectRow({ p, state, needs, spots, active }: { p: Prospect; state: G
         {p.status === "lost" && <Tag tone="muted">{p.offered ? `Signed with ${TEAMS[p.rival].short}` : "Elsewhere"}</Tag>}
         {p.status === "open" && (
           <>
+            {p.offered && p.you >= p.them && <Tag tone="good">Committed</Tag>}
             {p.visited && <Tag tone="gold">Visited</Tag>}
             <Button
               variant="outline"

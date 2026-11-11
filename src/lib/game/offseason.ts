@@ -77,7 +77,8 @@ export function openOffseason(players: Player[], depth: Record<Pos, string[]>, s
   for (const pos of POS_ORDER) {
     const list = depth[pos].map((id) => byId.get(id)).filter((p): p is Player => !!p && p.yr !== "HS");
     for (const p of list.slice(STARTERS[pos])) {
-      if ((p.yr === "So" || p.yr === "Jr") && p.ovr >= 74 && rng() < 0.45) {
+      if (p.promised) continue;
+      if (p.frustrated || ((p.yr === "So" || p.yr === "Jr") && p.ovr >= 74 && rng() < 0.45)) {
         departures.push({ playerId: p.id, keepCost: 40_000 + Math.max(0, p.ovr - 72) * 12_000, call: null });
       }
     }

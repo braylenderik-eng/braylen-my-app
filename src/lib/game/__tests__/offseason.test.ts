@@ -14,18 +14,17 @@ const off = (s: GameState) => s.offseason!;
 describe("offseason start", () => {
   test("opens the January window with next year's budget; December signees enroll", () => {
     let s = initialState(21);
-    s = reducer(s, { type: "rook/pay" });
     while (!seasonOver(s)) s = reducer(s, { type: "sim/week" });
+    const signees = s.players.filter((p) => p.yr === "HS").map((p) => p.id);
     s = reducer(s, { type: "offseason/start" });
     expect(off(s).phase).toBe("portal");
     expect(off(s).pool.length).toBe(14);
     expect(s.nilBudget).toBeGreaterThanOrEqual(2_000_000);
     expect(s.history).toHaveLength(1);
     expect(rosterSpots(s)).toBe(ROSTER_MAX - s.players.length);
-    // Rook signed in December and enrolls now.
-    expect(s.lastOffseason!.enrolled.map((p) => p.id)).toContain("rook");
-    expect(s.players.find((p) => p.id === "rook")?.yr).toBe("Fr");
-    expect(s.depth.QB).toContain("rook");
+    // December signees enroll now.
+    expect(s.lastOffseason!.enrolled.map((p) => p.id).sort()).toEqual(signees.sort());
+    for (const id of signees) expect(s.players.find((p) => p.id === id)?.yr).toBe("Fr");
     // Can't start twice.
     expect(reducer(s, { type: "offseason/start" })).toBe(s);
   });
@@ -94,7 +93,7 @@ describe("January transfer window", () => {
 });
 
 describe("saves", () => {
-  test("a version 4 save mid-season migrates: Rook decision kept, in-season bids refunded, recruiting board added", () => {
+  test("a version 4 save mid-season migrates: in-season bids refunded, recruiting board and scenarios added", () => {
     const base = initialState(5);
     const v4 = {
       ...base,
@@ -106,7 +105,8 @@ describe("saves", () => {
     };
     const loaded = loadState(JSON.stringify(v4));
     expect(loaded.version).toBe(STATE_VERSION);
-    expect(loaded.rook).toMatchObject({ decision: "hold", outcome: "flipped" });
+    expect((loaded as unknown as { rook?: unknown }).rook).toBeUndefined();
+    expect(loaded.scenarios).toEqual({ open: [], log: [] });
     expect(loaded.nilBudget).toBe(2_100_000);
     expect(loaded.recruiting?.signed).toBe(false);
   });

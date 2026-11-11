@@ -1,56 +1,104 @@
 // Season state and every action that changes it. Pure: (state, action) => state.
 
 import {
-  BYE_SEEDS, FINAL_WEEK, FIRST_WEEK, INITIAL_STANDINGS, PLAYOFF_FIELD, PORTAL, ROOK_ASK, ROOK_CURRENT,
+  FINAL_WEEK, FIRST_WEEK, INITIAL_STANDINGS, isPowerConf, PORTAL, POWER_CONFS,
   SCHEDULE, TEAMS, USER_TEAM, type Fixture, type TeamId,
 } from "./data";
 import { ageRoster, ALL_TEAMS, baseRatings, driftRatings, emptyReport, fillAndOrder, generateSchedule, type OffseasonReport, type Ratings } from "./season";
 import * as Off from "./offseason";
 import * as Rec from "./recruiting";
+import * as Ev from "./events";
 import { hashSeed, makeRng } from "./rng";
 import {
-  INITIAL_INJURIES, POS_LABEL, ROSTER, SIDE, STARTERS, initialDepth, isAvailable, ratingLossWithout, rookSignee,
+  INITIAL_INJURIES, POS_LABEL, ROSTER, SIDE, STARTERS, initialDepth, isAvailable, ratingLossWithout,
   skillFor, starters, teamRatings, type Injury, type LineupInput, type Player, type Pos,
 } from "./roster";
 import { DEFAULT_PLAN, simulateGame, type GamePlan, type GameResult, type GameTimeRisk, type SimOptions, type StatLine } from "./sim";
 
 export const STORAGE_KEY = "portal-wars-v3";
-export const STATE_VERSION = 5;
+export const STATE_VERSION = 6;
 
-// ---- Calendar ------------------------------------------------------------------
-// Weeks 11-12 are the regular season, 13-16 the playoff rounds, 17 means the season is done.
+// ---- Calendar and playoff format ------------------------------------------------
+// Season N is the (2025 + N) college football season. Season 1 (2026) uses the 12-team playoff;
+// from the 2027-28 season the playoff is 24 teams (announced Nov 9, 2026).
+// Regular-season weeks end at FINAL_WEEK; playoff rounds follow, one "week" each.
 
 export const PLAYOFF_START = FINAL_WEEK + 1;
-export const PLAYOFF_ROUNDS = ["First round", "Quarterfinals", "Semifinals", "National championship"] as const;
-export const SEASON_DONE = PLAYOFF_START + PLAYOFF_ROUNDS.length;
 
-export const isPlayoffs = (s: GameState) => s.week >= PLAYOFF_START && s.week < SEASON_DONE;
-export const seasonOver = (s: GameState) => s.week >= SEASON_DONE;
+export interface PlayoffFormat {
+  size: number;
+  byes: number;
+  rounds: string[];
+  short: string[]; // week-strip labels
+  neutralFrom: number; // first round played at a neutral (bowl) site
+  dates: string[];
+}
+
+export function playoffFormat(season: number): PlayoffFormat {
+  if (season <= 1) {
+    return {
+      size: 12,
+      byes: 4,
+      rounds: ["First round", "Quarterfinals", "Semifinals", "National championship"],
+      short: ["R1", "QF", "SF", "Final"],
+      neutralFrom: 1,
+      dates: ["Dec 18–19", "Dec 30–Jan 1", "Jan 14–15", "Jan 25"],
+    };
+  }
+  return {
+    size: 24,
+    byes: 8,
+    rounds: ["First round", "Second round", "Quarterfinals", "Semifinals", "National championship"],
+    short: ["R1", "R2", "QF", "SF", "Final"],
+    neutralFrom: 2,
+    dates: ["Early Dec", "Mid-Dec", "New Year's", "2nd week of Jan", "Late Jan"],
+  };
+}
+
+/** Kept for the 12-team (Season 1) bracket; use playoffFormat(season) for anything season-aware. */
+export const PLAYOFF_ROUNDS = playoffFormat(1).rounds;
+
+export const seasonDoneWeek = (season: number) => PLAYOFF_START + playoffFormat(season).rounds.length;
+export const titleWeek = (season: number) => seasonDoneWeek(season) - 1;
+export const isPlayoffs = (s: GameState) => s.week >= PLAYOFF_START && s.week < seasonDoneWeek(s.season);
+export const seasonOver = (s: GameState) => s.week >= seasonDoneWeek(s.season);
 export const regularSeasonOver = (s: GameState) => s.week > FINAL_WEEK;
 export const roundOf = (week: number) => week - PLAYOFF_START;
+/** @deprecated season-dependent: use seasonDoneWeek(season). Season 1 value, for old callers. */
+export const SEASON_DONE = seasonDoneWeek(1);
 
-/** Saturday of each regular-season week, ending with rivalry week on Nov 28. */
-export function weekDate(week: number) {
-  const d = new Date(Date.UTC(2026, 10, 28) - (FINAL_WEEK - week) * 7 * 86_400_000);
+/** Saturday after Thanksgiving (rivalry week) of the season's year. */
+function rivalrySaturday(season: number) {
+  const year = 2025 + season;
+  const nov1 = new Date(Date.UTC(year, 10, 1)).getUTCDay(); // 0 = Sunday
+  const firstThu = 1 + ((4 - nov1 + 7) % 7);
+  return Date.UTC(year, 10, firstThu + 21 + 2);
+}
+
+/** Saturday of each regular-season week, ending with rivalry week. */
+export function weekDate(week: number, season = 1) {
+  const d = new Date(rivalrySaturday(season) - (FINAL_WEEK - week) * 7 * 86_400_000);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 /** Real-calendar label for a week: game dates in the season, round dates in the playoff. */
-export function dateLabel(week: number) {
-  if (week <= FINAL_WEEK) return `Sat, ${weekDate(week)}`;
-  return ["Dec 18–19", "Dec 30–Jan 1", "Jan 14–15", "Jan 25"][week - FINAL_WEEK - 1] ?? "January";
+export function dateLabel(week: number, season = 1) {
+  if (week <= FINAL_WEEK) return `Sat, ${weekDate(week, season)}`;
+  return playoffFormat(season).dates[week - PLAYOFF_START] ?? "January";
 }
 
-export const KEY_DATES = {
-  signingDay: "Dec 2–4",
-  selectionDay: "Dec 6",
-  portalWindow: "Jan 4–13",
-};
+/** Signing Day, Selection Day and the transfer window. Exact dates are known for 2026-27. */
+export function keyDates(season: number) {
+  return season <= 1
+    ? { signingDay: "Dec 2–4", selectionDay: "Dec 6", portalWindow: "Jan 4–13" }
+    : { signingDay: "early December", selectionDay: "after rivalry week", portalWindow: "early January" };
+}
+export const KEY_DATES = keyDates(1);
 
-export function weekLabel(week: number) {
+export function weekLabel(week: number, season = 1) {
   if (week <= FINAL_WEEK) return `Week ${week}`;
-  if (week >= SEASON_DONE) return "Season complete";
-  return PLAYOFF_ROUNDS[roundOf(week)];
+  if (week >= seasonDoneWeek(season)) return "Season complete";
+  return playoffFormat(season).rounds[roundOf(week)];
 }
 
 // ---- Types ---------------------------------------------------------------------
@@ -129,8 +177,8 @@ export interface GameState {
   scholarships: number;
   hype: number;
   mediaTrust: number;
-  /** Season 1 scenario: match Bayou's offer for Rook before Early Signing Day, or hold. */
-  rook: { decision: null | "match" | "hold"; offer: number; interest: number; outcome: null | "signed" | "flipped" };
+  /** In-season scenarios: open ones need a decision; the log keeps what happened. */
+  scenarios: { open: Ev.Scenario[]; log: Ev.ResolvedScenario[] };
   recruiting: Rec.RecruitingState | null; // next year's class; signs on Early Signing Day
   press: PressChoice | null;
   bids: Bid[];
@@ -149,8 +197,7 @@ export interface GameState {
 }
 
 export type Action =
-  | { type: "rook/pay" }
-  | { type: "rook/walk" }
+  | { type: "scenario/choose"; id: string; option: string }
   | { type: "press/answer"; choice: PressChoice }
   | { type: "portal/scout"; playerId: string }
   | { type: "plan/set"; plan: Partial<GamePlan> }
@@ -180,13 +227,26 @@ const WIN_QUALITY = 9;
 const LOSS_BASE = 4;
 const LOSS_BAD = 12;
 
+/**
+ * Season 1 joins late, so the previous staff left a couple of commitments on the board:
+ * prospects with offers out who currently lean your way.
+ */
+function withCommitments(rec: Rec.RecruitingState): Rec.RecruitingState {
+  const board = rec.board.map((p, i) => {
+    if (i === 0) return { ...p, name: "Jalen Rook", pos: "QB" as const, hometown: "Austin, TX", offered: true, you: 72, them: 60, ask: 850_000 };
+    if (i === 3) return { ...p, offered: true, you: Math.max(p.you, p.them + 8) };
+    return p;
+  });
+  return { ...rec, board };
+}
+
 export function initialState(seed: number = Math.floor(Math.random() * 2 ** 31)): GameState {
   const standings: Standing[] = INITIAL_STANDINGS.map((s, i) => ({
     ...s,
     rank: i + 1,
     score: 100 - i * SPACING, // spacing keeps the starting order until results move it
   }));
-  return {
+  const s: GameState = {
     version: STATE_VERSION,
     seed,
     season: 1,
@@ -200,9 +260,9 @@ export function initialState(seed: number = Math.floor(Math.random() * 2 ** 31))
     scholarships: 3,
     hype: 50,
     mediaTrust: 70,
-    rook: { decision: null, offer: ROOK_CURRENT, interest: 68, outcome: null },
+    scenarios: { open: [], log: [] },
     // Joining late in Season 1: two recruiting weeks before Early Signing Day.
-    recruiting: Rec.createBoard(ROSTER, seed, 2, 0.45, FINAL_WEEK - FIRST_WEEK + 1),
+    recruiting: withCommitments(Rec.createBoard(ROSTER, seed, 2, 0.45, FINAL_WEEK - FIRST_WEEK + 1)),
     press: null,
     bids: [],
     scouts: [],
@@ -217,13 +277,14 @@ export function initialState(seed: number = Math.floor(Math.random() * 2 ** 31))
     recaps: [],
     unseenRecap: false,
     news: [
-      { id: "n1", week: 11, tag: "RECRUITING", when: "8:22a", headline: "Bayou offers committed QB Jalen Rook $1.1M; his camp wants Lone Star to match before Early Signing Day" },
+      { id: "n1", week: 11, tag: "RECRUITING", when: "8:22a", headline: "New staff inherits two commitments in next year's class; Early Signing Day is Dec 2–4" },
       { id: "n2", week: 11, tag: "RANKINGS", when: "7:05a", headline: "Committee holds Lone Star at No. 11; Rangers game now a de facto play-in" },
       { id: "n3", week: 11, tag: "PORTAL", when: "Yest", headline: "Heartland EDGE Kade Holloway tells teammates he'll enter the January transfer window" },
       { id: "n4", week: 11, tag: "INJURY", when: "Yest", headline: "Stallions RT Andre Marquez (ankle) limited in Thursday walkthrough — game-time call" },
       { id: "n5", week: 11, tag: "LEAGUE", when: "Yest", headline: "Private league \"DFW Dynasty\" invites Stallions GM — 8 of 12 slots filled" },
     ],
   };
+  return openScenario(s, true);
 }
 
 // ---- Selectors ------------------------------------------------------------------
@@ -237,8 +298,48 @@ export function standingOf(s: GameState, id: TeamId) {
 /** Season 1 "portal watch": players expected to enter the January window. They can't sign until then. */
 export const watchList = () => PORTAL;
 
-/** The Rook decision is open until Early Signing Day (right after the last regular-season week). */
-export const rookOpen = (s: GameState) => s.season === 1 && s.week <= FINAL_WEEK && s.rook.decision === null;
+/** The slice of the save a scenario can read and change. */
+export function world(s: GameState): Ev.World {
+  const f = s.week <= FINAL_WEEK ? s.schedule[s.week]?.find((x) => x.home === USER_TEAM || x.away === USER_TEAM) : undefined;
+  return {
+    season: s.season,
+    week: s.week,
+    finalWeek: FINAL_WEEK,
+    homeGame: f?.home === USER_TEAM,
+    players: s.players,
+    depth: s.depth,
+    injuries: s.injuries,
+    recruiting: s.recruiting,
+    nilBudget: s.nilBudget,
+    hype: s.hype,
+    mediaTrust: s.mediaTrust,
+  };
+}
+
+/** Maybe open a new scenario for the current week. */
+function openScenario(s: GameState, force = false): GameState {
+  const sc = Ev.maybeCreate(world(s), s.seed, s.scenarios.open, force);
+  if (!sc) return s;
+  return { ...s, scenarios: { ...s.scenarios, open: [...s.scenarios.open, sc] } };
+}
+
+/** Resolve one scenario with a choice (or its default), applying its effects. */
+function resolveScenario(s: GameState, id: string, option: string | null, auto: boolean): { state: GameState; entry: Ev.ResolvedScenario | null } {
+  const sc = s.scenarios.open.find((x) => x.id === id);
+  if (!sc) return { state: s, entry: null };
+  const choice = option && sc.options.some((o) => o.id === option) ? option : sc.defaultOption;
+  const { patch, outcome } = Ev.resolve(world(s), sc, choice, s.seed);
+  const entry: Ev.ResolvedScenario = { id: sc.id, kind: sc.kind, title: sc.title, choice: sc.options.find((o) => o.id === choice)!.label, outcome, week: s.week, auto };
+  return {
+    state: {
+      ...s,
+      ...patch,
+      scenarios: { open: s.scenarios.open.filter((x) => x.id !== id), log: [entry, ...s.scenarios.log].slice(0, 40) },
+      news: [news(sc.kind === "flip" || sc.kind === "visit" ? "RECRUITING" : sc.kind === "discipline" ? "INJURY" : "LEAGUE", `${sc.title} — ${outcome}`, s.week, s.season), ...s.news],
+    },
+    entry,
+  };
+}
 
 /** Questionable players the user can make a game-time call on. */
 export function questionable(s: GameState) {
@@ -281,48 +382,62 @@ export function firstWeek(s: GameState) {
 
 // ---- Playoff bracket -------------------------------------------------------------
 
-const ROUND_META = [
-  { kickoff: "Dec 18–19", venue: "Campus site" },
-  { kickoff: "Dec 30–Jan 1", venue: "Quarterfinal bowl" },
-  { kickoff: "Jan 14–15", venue: "Semifinal bowl" },
-  { kickoff: "Mon, Jan 25", venue: "Title game" },
-];
+/** Standard bracket order of the bye seeds, so each column lines up with the next. */
+function byeOrder(byes: number) {
+  return byes === 8 ? [1, 8, 4, 5, 2, 7, 3, 6] : [1, 4, 2, 3];
+}
 
 /**
- * The 12-team field: the five highest-ranked conference champions get automatic bids, the next seven
- * highest-ranked teams are at-large, and everyone is seeded straight by ranking.
- * A conference champion here is the best record in its conference, ties broken by ranking.
+ * The playoff field. Season 1 (12 teams): the five highest-ranked conference champions get automatic
+ * bids, seven at-large. From 2027-28 (24 teams): the four Power conference champions and the
+ * highest-ranked team from the other conferences get automatic bids, 19 at-large. Either way, seeding
+ * is straight by ranking. With no conference title games, a champion is the best record in its
+ * conference, ties broken by ranking.
  */
-export function selectField(standings: Standing[]) {
-  const confOf = (id: TeamId) => TEAMS[id].conf;
+export function selectField(standings: Standing[], season = 1) {
+  const { size } = playoffFormat(season);
+  const rankOf = new Map(standings.map((t) => [t.id, t.rank]));
   const champs = new Map<string, Standing>();
   for (const t of standings) {
-    const cur = champs.get(confOf(t.id));
+    const conf = TEAMS[t.id].conf;
+    const cur = champs.get(conf);
     const better = !cur || t.wins - t.losses > cur.wins - cur.losses || (t.wins - t.losses === cur.wins - cur.losses && t.rank < cur.rank);
-    if (better) champs.set(confOf(t.id), t);
+    if (better) champs.set(conf, t);
   }
-  const autoBids = [...champs.values()].sort((a, b) => a.rank - b.rank).slice(0, 5).map((t) => t.id);
-  const atLarge = standings.filter((t) => !autoBids.includes(t.id)).slice(0, PLAYOFF_FIELD - autoBids.length).map((t) => t.id);
-  const rankOf = new Map(standings.map((t) => [t.id, t.rank]));
+  let autoBids: TeamId[];
+  if (size === 12) {
+    autoBids = [...champs.values()].sort((a, b) => a.rank - b.rank).slice(0, 5).map((t) => t.id);
+  } else {
+    const power = POWER_CONFS.map((c) => champs.get(c)?.id).filter((x): x is TeamId => !!x);
+    const group = standings.filter((t) => !isPowerConf(TEAMS[t.id].conf)).sort((a, b) => a.rank - b.rank)[0];
+    autoBids = group ? [...power, group.id] : power;
+  }
+  const atLarge = standings.filter((t) => !autoBids.includes(t.id)).sort((a, b) => a.rank - b.rank).slice(0, size - autoBids.length).map((t) => t.id);
   const seeds = [...autoBids, ...atLarge].sort((a, b) => rankOf.get(a)! - rankOf.get(b)!);
   return { seeds, autoBids };
 }
 
-/** Seed pairings for each round, as [higher seed, lower seed] slots. */
+/**
+ * Pairings for each round, as [team, team] slots. Round 0 is the first round (non-bye seeds), round 1
+ * puts the bye seeds against round-0 winners, then winners pair off until the title game.
+ */
 function roundPairs(s: GameState, round: number): ([TeamId | null, TeamId | null] | null)[] {
   const seeds = s.playoff?.seeds;
   if (!seeds) return [];
-  const bySeed = (n: number) => seeds[n - 1];
+  const { byes } = playoffFormat(s.season);
+  const bySeed = (n: number) => seeds[n - 1] ?? null;
   const winner = (r: number, slot: number) => {
     const g = s.playoff!.games.find((x) => x.round === r && x.slot === slot);
     return g ? (g.homeScore > g.awayScore ? g.home : g.away) : null;
   };
-  // Slots are ordered so each game sits next to the one it feeds: R1 slot i -> QF slot i -> SF slot i/2.
-  if (round === 0) return [[bySeed(8), bySeed(9)], [bySeed(5), bySeed(12)], [bySeed(7), bySeed(10)], [bySeed(6), bySeed(11)]];
-  if (round === 1) return [[bySeed(1), winner(0, 0)], [bySeed(4), winner(0, 1)], [bySeed(2), winner(0, 2)], [bySeed(3), winner(0, 3)]];
-  if (round === 2) return [[winner(1, 0), winner(1, 1)], [winner(1, 2), winner(1, 3)]];
-  if (round === 3) return [[winner(2, 0), winner(2, 1)]];
-  return [];
+  const order = byeOrder(byes);
+  // The first-round game feeding bye seed t is (2*byes + 1 - t) vs (2*byes + t).
+  if (round === 0) return order.map((t) => [bySeed(2 * byes + 1 - t), bySeed(2 * byes + t)]);
+  if (round === 1) return order.map((t, i) => [bySeed(t), winner(0, i)]);
+  const prev = byes >> (round - 2); // games in the previous round
+  const out: [TeamId | null, TeamId | null][] = [];
+  for (let i = 0; i < prev; i += 2) out.push([winner(round - 1, i), winner(round - 1, i + 1)]);
+  return out;
 }
 
 export function seedOf(s: GameState, id: TeamId) {
@@ -332,16 +447,20 @@ export function seedOf(s: GameState, id: TeamId) {
 
 /** Fixtures for a round; null where a team is still to be decided. The better seed is listed at home. */
 export function playoffFixtures(s: GameState, round: number): ((Fixture & { neutral: boolean; slot: number }) | null)[] {
+  const fmt = playoffFormat(s.season);
   return roundPairs(s, round).map((pair, slot) => {
     if (!pair || !pair[0] || !pair[1]) return null;
     const [a, b] = pair;
     const [home, away] = (seedOf(s, a) ?? 99) <= (seedOf(s, b) ?? 99) ? [a, b] : [b, a];
-    return { home, away, slot, neutral: round > 0, ...ROUND_META[round], label: PLAYOFF_ROUNDS[round] };
+    const neutral = round >= fmt.neutralFrom;
+    const venue = !neutral ? "Campus site" : round === fmt.rounds.length - 1 ? "Title game" : round === fmt.rounds.length - 2 ? "Semifinal bowl" : "Quarterfinal bowl";
+    return { home, away, slot, neutral, kickoff: fmt.dates[round], venue, label: fmt.rounds[round] };
   });
 }
 
 export function champion(s: GameState): TeamId | null {
-  const g = s.playoff?.games.find((x) => x.round === 3);
+  const last = playoffFormat(s.season).rounds.length - 1;
+  const g = s.playoff?.games.find((x) => x.round === last);
   return g ? (g.homeScore > g.awayScore ? g.home : g.away) : null;
 }
 
@@ -374,7 +493,7 @@ export function playoffOdds(s: GameState, assume?: "win" | "loss", runs = 600): 
       });
       table = applyResults(table, results);
     }
-    if (table.find((t) => t.id === USER_TEAM)!.rank <= PLAYOFF_FIELD) made++;
+    if (selectField(table, s.season).seeds.includes(USER_TEAM)) made++;
   }
   return made / runs;
 }
@@ -390,9 +509,11 @@ function quickWinProb(ratings: Ratings, home: TeamId, away: TeamId, mine: { off:
 export function applyResults(table: Standing[], results: Score[]): Standing[] {
   const next = table.map((t) => ({ ...t, prevRank: t.rank }));
   const byId = new Map(next.map((t) => [t.id, t]));
+  // Quality of a win or loss: 1 for #1, sliding to 0 outside the top 25 (top 17 in the smaller Season 1 table).
+  const top = Math.min(25, next.length);
   const quality = (id: TeamId) => {
     const t = byId.get(id);
-    return t ? Math.max(0, 18 - t.rank) / 17 : 0; // 1 for #1, 0 for unranked
+    return t ? Math.max(0, top + 1 - t.rank) / top : 0;
   };
   for (const g of results) {
     const winner = g.homeScore > g.awayScore ? g.home : g.away;
@@ -427,49 +548,21 @@ export function reducer(s: GameState, a: Action): GameState {
     case "reset":
       return initialState();
 
-    case "rook/pay": {
-      // Match Bayou's offer. The deal is a commitment for next season; the money is set aside now.
-      if (!rookOpen(s) || s.nilBudget < ROOK_ASK) return s;
-      return {
-        ...s,
-        nilBudget: s.nilBudget - ROOK_ASK,
-        hype: clamp100(s.hype + 8),
-        rook: { decision: "match", offer: ROOK_ASK, interest: 95, outcome: null },
-        players: [...s.players, rookSignee(ROOK_ASK)],
-        news: [news("RECRUITING", "Lone Star matches Bayou for Jalen Rook: \"I'm a Stallion. I'll sign on day one.\"", s.week), ...s.news],
-      };
-    }
-
-    case "rook/walk": {
-      // Hold at his current number and let his interest decide it on Signing Day.
-      if (!rookOpen(s)) return s;
-      return {
-        ...s,
-        hype: clamp100(s.hype - 3),
-        rook: { ...s.rook, decision: "hold" },
-        news: [news("RECRUITING", "Lone Star holds firm at $850K for Rook; Bayou keeps calling", s.week), ...s.news],
-      };
-    }
+    case "scenario/choose":
+      return resolveScenario(s, a.id, a.option, false).state;
 
     case "press/answer": {
       if (s.press) return s;
-      // The Rook storyline is only live in Season 1 before Signing Day; otherwise answers just move hype and trust.
-      const open = rookOpen(s);
-      let { hype, mediaTrust, nilBudget, rook } = s;
+      let { hype, mediaTrust } = s;
       if (a.choice === "match") {
         hype += 8;
-        mediaTrust += 2;
-        if (open) {
-          nilBudget -= 50_000;
-          rook = { ...rook, interest: Math.min(99, rook.interest + 9) };
-        }
+        mediaTrust -= 1;
       } else if (a.choice === "board") {
-        mediaTrust += 2;
-        if (open) rook = { ...rook, interest: Math.max(1, rook.interest - 12) };
+        mediaTrust += 3;
       } else {
         mediaTrust -= 5;
       }
-      return { ...s, press: a.choice, hype: clamp100(hype), mediaTrust: clamp100(mediaTrust), nilBudget, rook };
+      return { ...s, press: a.choice, hype: clamp100(hype), mediaTrust: clamp100(mediaTrust) };
     }
 
     case "portal/scout":
@@ -572,8 +665,16 @@ export function reducer(s: GameState, a: Action): GameState {
 
 // ---- The weekly sim ---------------------------------------------------------------
 
-function simWeek(s: GameState, liveGame?: GameResult): GameState {
-  if (seasonOver(s)) return s;
+function simWeek(prev: GameState, liveGame?: GameResult): GameState {
+  if (seasonOver(prev)) return prev;
+  // Anything still unanswered at its deadline resolves with the default before this week's games.
+  let s = prev;
+  const autoNotes: string[] = [];
+  for (const sc of prev.scenarios.open.filter((x) => x.deadline <= prev.week)) {
+    const r = resolveScenario(s, sc.id, null, true);
+    s = r.state;
+    if (r.entry) autoNotes.push(`${r.entry.title}: no decision by the deadline — ${r.entry.choice.toLowerCase()}. ${r.entry.outcome}`);
+  }
   const week = s.week;
   const playoffRound = isPlayoffs(s) ? roundOf(week) : null;
   const fixtures = playoffRound === null ? (s.schedule[week] ?? []) : playoffFixtures(s, playoffRound).filter((f) => f !== null);
@@ -607,30 +708,16 @@ function simWeek(s: GameState, liveGame?: GameResult): GameState {
     playoff = { ...playoff, games: [...playoff.games, ...results.map((r) => ({ ...r, round: playoffRound, slot: r.slot! }))] };
   }
   if (week === FINAL_WEEK) {
-    playoff = { ...selectField(standings), games: [] };
+    playoff = { ...selectField(standings, s.season), games: [] };
   }
 
   const rng = makeRng(hashSeed("week", s.seed, s.season, week, 0, game?.homeScore ?? 0));
 
   const bidUpdates: WeekRecap["bidUpdates"] = [];
-  let { nilBudget, players, recruiting, rook } = s;
+  let { nilBudget, players, recruiting } = s;
   const depth = s.depth;
-  const notes: string[] = [];
+  const notes: string[] = [...autoNotes];
   const recruitingNews: NewsItem[] = [];
-
-  // Season 1: Rook decides on Early Signing Day, right after the last regular-season week.
-  if (playoffRound === null && week === FINAL_WEEK && s.season === 1 && rook.outcome === null) {
-    const holdChance = Math.min(0.6, Math.max(0.05, 0.3 + (rook.interest - 68) / 60 + (s.hype - 50) / 300));
-    const signs = rook.decision === "match" || (nilBudget >= ROOK_CURRENT && rng() < holdChance);
-    if (signs && rook.decision !== "match") {
-      nilBudget -= ROOK_CURRENT;
-      players = [...players, rookSignee(ROOK_CURRENT)];
-    }
-    rook = { ...rook, decision: rook.decision ?? "hold", outcome: signs ? "signed" : "flipped" };
-    const text = signs ? "Jalen Rook signs with Lone Star on Early Signing Day." : "Jalen Rook flips to Bayou and signs with the Kings on Early Signing Day.";
-    notes.push(text);
-    recruitingNews.push(news("RECRUITING", text, week, s.season));
-  }
 
   // Recruiting: each regular-season week passes on the board; the class signs after the last one.
   if (playoffRound === null && recruiting && !recruiting.signed) {
@@ -656,7 +743,7 @@ function simWeek(s: GameState, liveGame?: GameResult): GameState {
     else if (inj.status === "out" && inj.weeks > 1) injuries[id] = { ...inj, weeks: inj.weeks - 1 };
     else {
       const p = s.players.find((x) => x.id === id)!;
-      injuryUpdates.push({ playerId: id, text: `${p.pos} ${p.name} is healthy again.` });
+      injuryUpdates.push({ playerId: id, text: inj.desc === "suspension" ? `${p.pos} ${p.name} returns from his suspension.` : `${p.pos} ${p.name} is healthy again.` });
     }
   }
   for (const id of reinjured) {
@@ -697,7 +784,9 @@ function simWeek(s: GameState, liveGame?: GameResult): GameState {
   }
 
   // Headlines.
-  const label = playoffRound === null ? `week ${week}` : PLAYOFF_ROUNDS[playoffRound].toLowerCase();
+  const fmt = playoffFormat(s.season);
+  const lastRound = fmt.rounds.length - 1;
+  const label = playoffRound === null ? `week ${week}` : fmt.rounds[playoffRound].toLowerCase();
   if (game) {
     const opp = game.home === USER_TEAM ? game.away : game.home;
     const us = game.home === USER_TEAM ? game.homeScore : game.awayScore;
@@ -707,7 +796,7 @@ function simWeek(s: GameState, liveGame?: GameResult): GameState {
       news(
         playoffRound === null ? "GAME" : "PLAYOFF",
         us > them
-          ? playoffRound === 3
+          ? playoffRound === lastRound
             ? `NATIONAL CHAMPIONS: Stallions beat ${TEAMS[opp].name} ${us}–${them}${ot}`
             : `Stallions top ${TEAMS[opp].name} ${us}–${them}${ot}${playoffRound !== null ? ` to win the ${label}` : ""}`
           : `${TEAMS[opp].name} ${playoffRound !== null ? "end Stallions' season" : "stun Stallions"} ${them}–${us}${ot}`,
@@ -732,9 +821,9 @@ function simWeek(s: GameState, liveGame?: GameResult): GameState {
   }
   if (week === FINAL_WEEK && playoff) {
     const seed = playoff.seeds.indexOf(USER_TEAM) + 1;
-    headlines.push(news("PLAYOFF", seed ? `Selection day: Lone Star is the No. ${seed} seed` : "Selection day: Lone Star left out of the 12-team field", week, s.season));
+    headlines.push(news("PLAYOFF", seed ? `Selection day: Lone Star is the No. ${seed} seed` : `Selection day: Lone Star left out of the ${fmt.size}-team field`, week, s.season));
   }
-  if (playoffRound === 3 && results[0]) {
+  if (playoffRound === lastRound && results[0]) {
     const r = results[0];
     const champ = r.homeScore > r.awayScore ? r.home : r.away;
     if (champ !== USER_TEAM) headlines.push(news("PLAYOFF", `${TEAMS[champ].name} win the national championship`, week, s.season));
@@ -743,7 +832,7 @@ function simWeek(s: GameState, liveGame?: GameResult): GameState {
 
   const userWon = game ? (game.home === USER_TEAM ? game.homeScore > game.awayScore : game.awayScore > game.homeScore) : null;
 
-  return {
+  const next: GameState = {
     ...s,
     week: week + 1,
     standings,
@@ -753,7 +842,6 @@ function simWeek(s: GameState, liveGame?: GameResult): GameState {
     depth,
     injuries,
     recruiting,
-    rook,
     gameTime: {},
     seasonStats,
     hype: clamp100(s.hype + (userWon === null ? 0 : userWon ? 6 : -10)),
@@ -762,6 +850,7 @@ function simWeek(s: GameState, liveGame?: GameResult): GameState {
     unseenRecap: true,
     news: [...headlines.reverse(), ...s.news],
   };
+  return playoffRound === null && week < FINAL_WEEK ? openScenario(next) : { ...next, scenarios: { ...next.scenarios, open: [] } };
 }
 
 function news(tag: NewsItem["tag"], headline: string, week: number, season = 1): NewsItem {
@@ -782,7 +871,8 @@ export function seasonSummary(s: GameState): SeasonSummary {
   if (champ === USER_TEAM) finish = "National champions";
   else if (seed) {
     const loss = s.playoff?.games.find((g) => (g.home === USER_TEAM || g.away === USER_TEAM) && (g.homeScore > g.awayScore ? g.away : g.home) === USER_TEAM);
-    finish = loss ? (loss.round === 3 ? "Lost in the title game" : `Lost in the ${PLAYOFF_ROUNDS[loss.round].toLowerCase()}`) : "Made the playoff";
+    const rounds = playoffFormat(s.season).rounds;
+    finish = loss ? (loss.round === rounds.length - 1 ? "Lost in the title game" : `Lost in the ${rounds[loss.round].toLowerCase()}`) : "Made the playoff";
   }
   return { season: s.season, wins: me.wins, losses: me.losses, rank: me.rank, seed, finish, champion: champ };
 }
@@ -836,8 +926,14 @@ export function startOffseason(s: GameState): GameState {
 
 /** Begin the next season: walk-ons fill gaps, then a new 12-week schedule and preseason poll. */
 export function beginSeason(s: GameState): GameState {
+  return openScenario(beginSeasonCore(s));
+}
+
+function beginSeasonCore(s: GameState): GameState {
   const season = s.season + 1;
-  const { players, depth, walkOns } = fillAndOrder(s.players, s.depth, s.seed, season);
+  const filled = fillAndOrder(s.players, s.depth, s.seed, season);
+  const players = filled.players.map((p) => (p.promised || p.frustrated ? { ...p, promised: false, frustrated: false } : p));
+  const { depth, walkOns } = filled;
   const report = { ...(s.lastOffseason ?? emptyReport()), walkOns };
   const mine = teamRatings(USER_TEAM, { players, depth, injuries: {}, gameTime: {} });
   const prevRank = new Map(s.standings.map((t) => [t.id, t.rank]));
@@ -870,6 +966,7 @@ export function beginSeason(s: GameState): GameState {
     playoff: null,
     recaps: [],
     unseenRecap: false,
+    scenarios: { open: [], log: s.scenarios.log },
     scholarships: Math.max(0, Rec.ROSTER_MAX - players.length),
     bids: [],
     scouts: [],
@@ -886,8 +983,9 @@ export function beginSeason(s: GameState): GameState {
 // ---- Selection -----------------------------------------------------------------
 
 export function playoffField(s: GameState) {
-  const ids = s.playoff?.seeds ?? s.standings.slice(0, PLAYOFF_FIELD).map((t) => t.id);
-  return ids.map((id, i) => ({ ...standingOf(s, id)!, seed: i + 1, bye: i < BYE_SEEDS }));
+  const fmt = playoffFormat(s.season);
+  const ids = s.playoff?.seeds ?? selectField(s.standings, s.season).seeds;
+  return ids.map((id, i) => ({ ...standingOf(s, id)!, seed: i + 1, bye: i < fmt.byes }));
 }
 
 /** Starters needed vs available, for warnings on the roster screen. */
@@ -899,22 +997,14 @@ export function shortPositions(s: GameState): Pos[] {
 // ---- Persistence ---------------------------------------------------------------
 
 function migrateV4(old: GameState): GameState {
-  const legacy = old as unknown as { rook: { decision: string | null; offer: number; interest: number }; offseason: (Off.OffseasonState & { phase: string }) | null; bids?: Bid[] };
-  const past = old.season > 1 || old.week > FINAL_WEEK;
-  const d = legacy.rook?.decision;
-  const rook: GameState["rook"] = {
-    decision: d === "paid" ? "match" : d === "walked" ? "hold" : null,
-    offer: legacy.rook?.offer ?? ROOK_CURRENT,
-    interest: legacy.rook?.interest ?? 68,
-    outcome: d === "paid" ? (past ? "signed" : null) : d === "walked" || past ? "flipped" : null,
-  };
+  const legacy = old as unknown as { offseason: (Off.OffseasonState & { phase: string }) | null; bids?: Bid[] };
   // In-season transfer bids no longer exist: refund anything still pending.
   const refund = (legacy.bids ?? []).filter((b) => b.status === "pending").reduce((n, b) => n + b.amount, 0);
   // Offseason recruiting moved into the season: an offseason stuck on recruiting skips to "ready".
   const offseason = legacy.offseason ? ({ ...legacy.offseason, phase: legacy.offseason.phase === "portal" ? "portal" : "ready" } as Off.OffseasonState) : null;
   const recruiting =
     old.week <= FINAL_WEEK && !old.offseason ? Rec.createBoard(old.players, old.seed, old.season + 1, 0.45, FINAL_WEEK - old.week + 1) : null;
-  return { ...old, version: STATE_VERSION, rook, offseason, recruiting, bids: [], nilBudget: old.nilBudget + refund };
+  return { ...old, version: 5, offseason, recruiting, bids: [], nilBudget: old.nilBudget + refund };
 }
 
 export function loadState(raw: string | null): GameState {
@@ -927,6 +1017,12 @@ export function loadState(raw: string | null): GameState {
     }
     // Version 4 saves: Rook could "enter the portal", recruiting ran in the offseason, and Season 1 had in-season bids.
     if (parsed?.version === 4) parsed = migrateV4(parsed);
+    // Version 5 saves had a special-case Rook storyline; scenarios replace it.
+    if (parsed?.version === 5) {
+      const { rook: _rook, ...rest } = parsed as GameState & { rook?: unknown };
+      void _rook;
+      parsed = { ...rest, version: STATE_VERSION, scenarios: { open: [], log: [] } } as GameState;
+    }
     // Saves from before the offseason update: no offseason field, and an older report shape.
     if (parsed && parsed.offseason === undefined) parsed = { ...parsed, offseason: null };
     if (parsed?.lastOffseason) parsed = { ...parsed, lastOffseason: { ...emptyReport(), ...parsed.lastOffseason } };

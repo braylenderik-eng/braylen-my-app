@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { FINAL_WEEK, USER_TEAM } from "../data";
 import { POS_ORDER, STARTERS, starters } from "../roster";
 import { ALL_TEAMS, generateSchedule, potentialOf, SEASON_WEEKS } from "../season";
-import { initialState, lineup, loadState, PLAYOFF_START, reducer, SEASON_DONE, seasonOver, standingOf, STORAGE_KEY, type GameState } from "../state";
+import { initialState, lineup, loadState, PLAYOFF_START, reducer, seasonDoneWeek, seasonOver, standingOf, STORAGE_KEY, type GameState } from "../state";
 
 const finishSeason = (s: GameState) => {
   while (!seasonOver(s)) s = reducer(s, { type: "sim/week" });
@@ -57,16 +57,19 @@ describe("offseason", () => {
     expect(next.history[0]).toMatchObject({ season: 1 });
   });
 
-  test("a signed high-school recruit enrolls and joins the depth chart", () => {
-    let s = reducer(initialState(3), { type: "rook/pay" });
-    s = reducer(finishSeason(s), { type: "season/next" });
-    const rook = s.players.find((p) => p.id === "rook")!;
-    expect(rook.yr).toBe("Fr");
-    expect(s.depth.QB).toContain("rook");
-    expect(s.lastOffseason!.enrolled.map((p) => p.id)).toEqual(["rook"]);
+  test("December signees enroll and join the depth chart", () => {
+    const end = finishSeason(initialState(3));
+    const signees = end.players.filter((p) => p.yr === "HS").map((p) => p.id);
+    const s = reducer(end, { type: "season/next" });
+    expect(s.lastOffseason!.enrolled.map((p) => p.id).sort()).toEqual(signees.sort());
+    for (const id of signees) {
+      const p = s.players.find((x) => x.id === id)!;
+      expect(p.yr).toBe("Fr");
+      expect(s.depth[p.pos]).toContain(id);
+    }
   });
 
-  test("a new season starts 0–0 for all 20 teams with a fresh budget and no carry-over", () => {
+  test("a new season starts 0–0 for all 40 teams with a fresh budget and no carry-over", () => {
     const next = reducer(finishSeason(initialState(11)), { type: "season/next" });
     expect(next.standings).toHaveLength(ALL_TEAMS.length);
     expect(next.standings.every((t) => t.wins === 0 && t.losses === 0)).toBe(true);
@@ -85,19 +88,19 @@ describe("offseason", () => {
     const me = standingOf(s, USER_TEAM)!;
     expect(me.wins + me.losses).toBe(FINAL_WEEK);
     expect(s.recaps).toHaveLength(FINAL_WEEK);
-    expect(s.playoff?.seeds).toHaveLength(12);
+    expect(s.playoff?.seeds).toHaveLength(24); // the 24-team era starts in 2027-28 (Season 2)
     s = finishSeason(s);
-    expect(s.week).toBe(SEASON_DONE);
+    expect(s.week).toBe(seasonDoneWeek(2));
     s = reducer(s, { type: "season/next" });
     expect(s.season).toBe(3);
     expect(s.history.map((h) => h.season)).toEqual([1, 2]);
   });
 
-  test("the Rook storyline is closed after Season 1", () => {
+  test("press answers only move hype and media trust", () => {
     const s = reducer(finishSeason(initialState(9)), { type: "season/next" });
-    expect(reducer(s, { type: "rook/pay" })).toBe(s);
     const pressed = reducer(s, { type: "press/answer", choice: "match" });
     expect(pressed.nilBudget).toBe(s.nilBudget);
+    expect(pressed.hype).toBeGreaterThan(s.hype);
   });
 });
 

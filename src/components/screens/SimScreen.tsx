@@ -6,7 +6,7 @@ import { useState } from "react";
 import { FINAL_WEEK, SCOUTING, TEAMS, USER_TEAM, type TeamId } from "@/lib/game/data";
 import type { DefensePlan, Drive, GameResult, OffensePlan, StatLine } from "@/lib/game/sim";
 import {
-  champion, currentUserFixture, dateLabel, firstWeek, KEY_DATES, isPlayoffs, PLAYOFF_ROUNDS, PLAYOFF_START, playoffField, playoffFixtures,
+  champion, currentUserFixture, dateLabel, firstWeek, keyDates, isPlayoffs, playoffFormat, titleWeek, playoffField, playoffFixtures,
   roundOf, scheduleFixture, seasonOver, seasonSummary, seedOf, userEliminated, weekLabel, type GameState, type Score,
   type WeekRecap,
 } from "@/lib/game/state";
@@ -15,10 +15,10 @@ import { useGame } from "../GameProvider";
 import { MatchupHero, useMatchup, type MatchupInfo } from "../Matchup";
 import { LiveGame } from "../LiveGame";
 import { OffseasonHub } from "../OffseasonHub";
+import { ScenarioCards } from "../ScenarioCards";
 import { Button, cx, PageHeader, Panel, Stat, Tag, TeamBadge } from "../ui";
 import { UnitCard, unitEdges } from "../UnitMatchups";
 
-const TITLE_WEEK = PLAYOFF_START + PLAYOFF_ROUNDS.length - 1;
 
 export function SimScreen() {
   const { state } = useGame();
@@ -45,7 +45,7 @@ export function SimScreen() {
 
 function WeekStrip({ state, selected, onSelect }: { state: GameState; selected: number | null; onSelect: (w: number | null) => void }) {
   const chips = [];
-  for (let w = firstWeek(state); w <= TITLE_WEEK; w++) {
+  for (let w = firstWeek(state); w <= titleWeek(state.season); w++) {
     const recap = state.recaps.find((r) => r.week === w);
     const isCurrent = w === state.week;
     let opp: TeamId | null = null;
@@ -61,7 +61,7 @@ function WeekStrip({ state, selected, onSelect }: { state: GameState; selected: 
       if (f) opp = f.home === USER_TEAM ? f.away : f.home;
     }
     const result = recap?.game ? outcome(recap.game) : null;
-    const label = w <= FINAL_WEEK ? `W${w}` : ["R1", "QF", "SF", "Final"][roundOf(w)];
+    const label = w <= FINAL_WEEK ? `W${w}` : playoffFormat(state.season).short[roundOf(w)];
     chips.push(
       <button
         key={w}
@@ -169,9 +169,10 @@ function GamePlan({ state }: { state: GameState }) {
     <div className="pb-28">
       <PageHeader
         title="Game plan"
-        sub={`Season ${state.season} · ${weekLabel(state.week)} · ${dateLabel(state.week)} · ${m.neutral ? "Neutral site" : m.fixture.home === USER_TEAM ? "Home game" : "Road game"}`}
+        sub={`Season ${state.season} · ${weekLabel(state.week, state.season)} · ${dateLabel(state.week, state.season)} · ${m.neutral ? "Neutral site" : m.fixture.home === USER_TEAM ? "Home game" : "Road game"}`}
       />
       <SelectionBanner state={state} />
+      <ScenarioCards state={state} compact />
       <MatchupHero state={state} m={m} />
 
       <div className="mt-5 grid gap-5 lg:grid-cols-3">
@@ -409,9 +410,9 @@ function SelectionBanner({ state }: { state: GameState }) {
         seed ? "border-good/40 bg-gradient-to-br from-good/15 to-panel" : "border-accent/40 bg-gradient-to-br from-accent/15 to-panel",
       )}
     >
-      <p className="font-display text-xs tracking-[0.2em] text-muted">Selection Day · {KEY_DATES.selectionDay}</p>
+      <p className="font-display text-xs tracking-[0.2em] text-muted">Selection Day · {keyDates(state.season).selectionDay}</p>
       <p className="font-display text-3xl leading-tight font-bold sm:text-4xl">
-        {seed ? `You're in — No. ${seed} seed${seed <= 4 ? " · first-round bye" : ""}` : "Left out of the 12-team field"}
+        {seed ? `You're in — No. ${seed} seed${seed <= playoffFormat(state.season).byes ? " · first-round bye" : ""}` : `Left out of the ${playoffFormat(state.season).size}-team field`}
       </p>
       <p className="mt-1 text-sm text-muted">
         {state.playoff.autoBids?.includes(USER_TEAM)
@@ -419,7 +420,9 @@ function SelectionBanner({ state }: { state: GameState }) {
           : seed
             ? "At-large bid. "
             : ""}
-        Five highest-ranked conference champions get automatic bids, seven at-large teams fill the field, and seeding goes straight by ranking.
+        {playoffFormat(state.season).size === 12
+          ? "Five highest-ranked conference champions get automatic bids, seven at-large teams fill the field, and seeding goes straight by ranking."
+          : "24-team field: the four Power conference champions and the top team from the other conferences get automatic bids, 19 at-large. Seeds 1–8 get byes; the first two rounds are on campus."}
       </p>
     </div>
   );
@@ -442,11 +445,11 @@ function PlayoffWatch({ state }: { state: GameState }) {
   return (
     <div>
       <PageHeader
-        title={PLAYOFF_ROUNDS[round]}
-        sub={`Season ${state.season} · 12-team playoff`}
+        title={playoffFormat(state.season).rounds[round]}
+        sub={`Season ${state.season} · ${playoffFormat(state.season).size}-team playoff`}
         right={
           <Button onClick={sim} disabled={simming}>
-            {simming ? "Simulating…" : `Sim ${PLAYOFF_ROUNDS[round].toLowerCase()}`}
+            {simming ? "Simulating…" : `Sim ${playoffFormat(state.season).rounds[round].toLowerCase()}`}
           </Button>
         }
       />
@@ -467,10 +470,10 @@ function Bracket({ state }: { state: GameState }) {
   const games = state.playoff?.games ?? [];
   const field = playoffField(state);
   return (
-    <Panel kicker="12-team field" title="The bracket" bodyClassName="p-0">
+    <Panel kicker={`${playoffFormat(state.season).size}-team field`} title="The bracket" bodyClassName="p-0">
       <div className="overflow-x-auto p-4">
-        <div className="grid min-w-[880px] grid-cols-4 gap-4">
-          {PLAYOFF_ROUNDS.map((name, round) => (
+        <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${playoffFormat(state.season).rounds.length}, minmax(200px, 1fr))` }}>
+          {playoffFormat(state.season).rounds.map((name, round) => (
             <div key={name} className="flex flex-col">
               <p className="font-display mb-2 text-xs tracking-widest text-accent-hi">{name}</p>
               <div className="flex flex-1 flex-col justify-around gap-3">
@@ -482,8 +485,8 @@ function Bracket({ state }: { state: GameState }) {
           ))}
         </div>
         <p className="mt-4 text-xs text-muted">
-          Byes: {field.slice(0, 4).map((t) => `(${t.seed}) ${TEAMS[t.id].name}`).join(" · ")} · <span className="text-gold">AQ</span> = conference champion
-          (automatic bid) · First round on campus Dec 18–19, quarterfinals Dec 30–Jan 1, semifinals Jan 14–15, title game Jan 25.
+          Byes: {field.slice(0, playoffFormat(state.season).byes).map((t) => `(${t.seed}) ${TEAMS[t.id].name}`).join(" · ")} · <span className="text-gold">AQ</span> = conference champion
+          (automatic bid) · {playoffFormat(state.season).rounds.map((r, i) => `${r}: ${playoffFormat(state.season).dates[i]}`).join(" · ")}
         </p>
       </div>
     </Panel>
@@ -617,13 +620,13 @@ function Recap({ recap, fresh, onBack }: { recap: WeekRecap; fresh: boolean; onB
     if (fresh && regular && recap.week !== FINAL_WEEK) router.push("/");
   };
 
-  const title = o ? (o.won ? (recap.week === TITLE_WEEK ? "Champions" : "Victory") : "Defeat") : `${weekLabel(recap.week)} results`;
+  const title = o ? (o.won ? (recap.week === titleWeek(state.season) ? "Champions" : "Victory") : "Defeat") : `${weekLabel(recap.week, state.season)} results`;
 
   return (
     <div>
       <PageHeader
         title={title}
-        sub={`Season ${state.season} · ${weekLabel(recap.week)} · Final${g?.overtime ? " / OT" : ""}`}
+        sub={`Season ${state.season} · ${weekLabel(recap.week, state.season)} · Final${g?.overtime ? " / OT" : ""}`}
         right={<Button onClick={finish}>{fresh ? "Continue" : "Back"}</Button>}
       />
 
@@ -643,16 +646,16 @@ function Recap({ recap, fresh, onBack }: { recap: WeekRecap; fresh: boolean; onB
                     <Stat label="Move" value={moved === 0 ? "—" : moved > 0 ? `▲${moved}` : `▼${-moved}`} tone={moved > 0 ? "good" : moved < 0 ? "bad" : undefined} />
                   </div>
                   <p className="mt-3 text-sm text-muted">
-                    {recap.rankAfter <= 12 ? "Inside the 12-team field." : `${recap.rankAfter - 12} spot${recap.rankAfter - 12 === 1 ? "" : "s"} outside the field.`}{" "}
+                    {recap.rankAfter <= playoffFormat(state.season).size ? `Inside the ${playoffFormat(state.season).size}-team field.` : `${recap.rankAfter - playoffFormat(state.season).size} spot${recap.rankAfter - playoffFormat(state.season).size === 1 ? "" : "s"} outside the field.`}{" "}
                     <Link href="/rankings" className="text-accent-hi hover:underline">
                       Full rankings
                     </Link>
                   </p>
                 </Panel>
               ) : (
-                <Panel kicker="Playoff" title={o?.won ? (recap.week === TITLE_WEEK ? "National champions" : "Advancing") : "Eliminated"}>
+                <Panel kicker="Playoff" title={o?.won ? (recap.week === titleWeek(state.season) ? "National champions" : "Advancing") : "Eliminated"}>
                   <p className="text-sm text-muted">
-                    {o?.won ? (recap.week === TITLE_WEEK ? "The title is yours." : `On to the ${PLAYOFF_ROUNDS[roundOf(recap.week) + 1].toLowerCase()}.`) : "The season ends here."}
+                    {o?.won ? (recap.week === titleWeek(state.season) ? "The title is yours." : `On to the ${playoffFormat(state.season).rounds[roundOf(recap.week) + 1].toLowerCase()}.`) : "The season ends here."}
                   </p>
                 </Panel>
               )}
@@ -691,7 +694,7 @@ function Recap({ recap, fresh, onBack }: { recap: WeekRecap; fresh: boolean; onB
       {!g && <FrontOfficeNotes recap={recap} />}
 
       {regular ? (
-        <Panel kicker={weekLabel(recap.week)} title="Around the league" className="mt-5">
+        <Panel kicker={weekLabel(recap.week, state.season)} title="Around the league" className="mt-5">
           <ScoreGrid scores={recap.others} />
         </Panel>
       ) : (

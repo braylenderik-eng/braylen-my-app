@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { PORTAL_WINDOW, ROSTER_MAX } from "@/lib/game/offseason";
-import { rosterSpots, type GameState } from "@/lib/game/state";
+import { ROSTER_MAX } from "@/lib/game/offseason";
+import { keyDates, rosterSpots, type GameState } from "@/lib/game/state";
 import { money } from "@/lib/format";
 import { useGame } from "./GameProvider";
 import { Button, ButtonLink, cx, Panel, Stat, Tag } from "./ui";
@@ -26,7 +26,7 @@ export function OffseasonHub({ state }: { state: GameState }) {
       action: null,
     },
     {
-      title: `January transfer window (${PORTAL_WINDOW})`,
+      title: `January transfer window (${keyDates(state.season).portalWindow})`,
       body:
         step === 1
           ? `${off.departures.length} of your players want to transfer. ${off.pool.length} players are in the portal. ${off.bids.length} bid${off.bids.length === 1 ? "" : "s"} filed.`

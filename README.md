@@ -1,23 +1,34 @@
 # Portal Wars
 
-A college football GM game prototype. You run the Lone Star Stallions as a multi-season dynasty: set your depth chart and
-game plan, play games live (4th downs, two-point tries, halftime adjustments, clock management) or quick-sim them,
-recruit during the season, work the January transfer window, and chase a title through the 12-team playoff. All teams
-and players are fictional.
+A college football GM game prototype. You run the Lone Star Stallions as a multi-season dynasty in a fictional
+40-team league: set your depth chart and game plan, play games live (4th downs, two-point tries, halftime adjustments,
+clock management) or quick-sim them, handle in-season situations, recruit during the season, work the January transfer
+window, and chase a title. All teams and players are fictional.
 
 ### The calendar follows real college football
 
 | When (in game) | Real date | What happens |
 | --- | --- | --- |
-| Regular season, weeks 1–12 | late Aug – Sat, Nov 28 | Games; recruiting board for next year's class runs week by week |
-| Right after Week 12 | Dec 2–4 | **Early Signing Day** — offered prospects sign with you or a rival |
-| Selection Day | Dec 6 | 12-team field: five highest-ranked conference champions (auto bids) + seven at-large, seeded straight by ranking |
-| Playoff | Dec 18–19 → Jan 25 | First round on campus, quarterfinals, semifinals, title game |
+| Regular season, weeks 1–12 | late Aug – rivalry week (Sat after Thanksgiving) | Games, weekly scenarios, and the recruiting board for next year's class |
+| Right after Week 12 | early December (Dec 2–4 in 2026) | **Early Signing Day** — offered prospects sign with you or a rival |
+| Selection | early December | The playoff field is set (see below) |
+| Playoff | December – January | 12 teams in Season 1 (2026); **24 teams from Season 2 (2027-28)** |
 | Offseason | January | Seniors graduate, players develop, signees enroll, **one transfer window** (no spring or in-season window) |
 
-Season 1 opens late (Week 11) with a scenario: Jalen Rook, a committed 5★ QB, has a bigger offer from Bayou. Match it
-before Early Signing Day or he may flip. Simplifications: the game tracks ~40 key players (real rosters are capped at
-105), and the "NIL budget" is the money still uncommitted for new revenue-share/NIL deals, not the full ~$20.5M cap.
+**Playoff formats.** Season 1 is the 2026 season: 12 teams, the five highest-ranked conference champions get automatic
+bids plus seven at-large, seeds 1–4 get byes. From Season 2 (the 2027-28 season) it's the 24-team format announced on
+Nov 9, 2026: the four Power conference champions and the highest-ranked team from the other conferences get automatic
+bids plus 19 at-large; seeds 1–8 get byes; seeds 9–16 host 17–24 in the first round and the bye seeds host the second
+round on campus; quarterfinals and semifinals are bowls. Seeding is straight by ranking. There are no conference title
+games, so a conference champion is its best-record team.
+
+**In-season scenarios.** Most weeks something comes up that needs a decision before the game — a flip threat on a
+recruit you've offered, a booster pledge with strings attached, a discipline call on a starter, a frustrated backup
+eyeing the January portal, or a top prospect asking to visit for your home game. Each has choices with real effects;
+anything unanswered resolves with the default at its deadline.
+
+Simplifications: the game tracks ~40 key players (real rosters are capped at 105), and the "NIL budget" is the money
+still uncommitted for new revenue-share/NIL deals, not the full ~$20.5M cap.
 
 ## Getting started
 
@@ -62,9 +73,11 @@ visits while rival schools push back; only prospects with an NIL/revenue-share o
 Day each picks you or his top rival depending on who leads. `src/lib/game/offseason.ts` runs the January transfer
 window: backups who want to transfer, and a pool of transfers with bids that resolve when the window closes.
 
+`src/lib/game/events.ts` defines the in-season scenarios: when each can come up, its choices, and their effects.
+
 `src/lib/game/state.ts` holds the save: decisions, bids, injuries, season stats, the weekly sim of every game,
-committee re-ranking, playoff odds, the bracket, and program history. Season 1 covers weeks 11–12; later seasons
-weeks 1–12; then four playoff rounds. All four are plain TypeScript with no React, and have tests in
+committee re-ranking, playoff odds, the field and bracket (12 or 24 teams by season), and program history. Season 1
+covers weeks 11–12; later seasons weeks 1–12; then the playoff rounds. All four are plain TypeScript with no React, and have tests in
 `src/lib/game/__tests__`.
 
 ## Scripts

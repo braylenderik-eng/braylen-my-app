@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { money } from "@/lib/format";
-import { rookOpen, weekLabel } from "@/lib/game/state";
+import { weekLabel } from "@/lib/game/state";
 import { Button, cx, Dialog } from "./ui";
 import { useGame } from "./GameProvider";
 
@@ -35,7 +35,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               const active = n.href === "/" ? path === "/" : path.startsWith(n.href);
               const hurt = Object.values(state.injuries).some((i) => i.status === "questionable");
               const offPhase = state.offseason?.phase;
-              const dot = (n.href === "/recruiting" && rookOpen(state)) || (n.href === "/portal" && offPhase === "portal") || (n.href === "/sim" && state.unseenRecap) || (n.href === "/roster" && hurt);
+              const dot = (n.href === "/" && state.scenarios.open.length > 0) || (n.href === "/portal" && offPhase === "portal") || (n.href === "/sim" && state.unseenRecap) || (n.href === "/roster" && hurt);
               return (
                 <Link
                   key={n.href}
@@ -55,7 +55,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="hidden shrink-0 items-center gap-3 md:flex">
             <div className="text-right leading-tight">
               <p className="font-display text-sm font-semibold">Season {state.season}</p>
-              <p className="font-display text-[10px] tracking-widest text-muted">{state.offseason ? "Offseason" : weekLabel(state.week)}</p>
+              <p className="font-display text-[10px] tracking-widest text-muted">{state.offseason ? "Offseason" : weekLabel(state.week, state.season)}</p>
             </div>
             <span className="font-display tabular rounded-md bg-accent/15 px-2.5 py-1.5 text-sm font-semibold text-accent-hi ring-1 ring-accent/30">
               NIL {money(state.nilBudget)}
@@ -66,7 +66,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="border-b border-line bg-bg-2/60 md:hidden">
         <div className="font-display mx-auto flex max-w-7xl items-center justify-between px-4 py-2 text-xs tracking-widest text-muted">
-          <span>Season {state.season} · {state.offseason ? "Offseason" : weekLabel(state.week)}</span>
+          <span>Season {state.season} · {state.offseason ? "Offseason" : weekLabel(state.week, state.season)}</span>
           <span className="text-accent-hi">NIL {money(state.nilBudget)}</span>
         </div>
       </div>

@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { TEAMS, USER_TEAM, type TeamId } from "@/lib/game/data";
 import { winProbability } from "@/lib/game/sim";
 import {
-  champion, currentUserFixture, dateLabel, isPlayoffs, KEY_DATES, rookOpen, playoffFixtures, PLAYOFF_ROUNDS, roundOf, seasonOver, seedOf, standingOf, userEliminated, weekLabel,
+  champion, currentUserFixture, dateLabel, isPlayoffs, playoffFixtures, playoffFormat, roundOf, seasonOver, seedOf, standingOf, userEliminated, weekLabel,
   type GameState,
 } from "@/lib/game/state";
 import { money, pct, spreadFor } from "@/lib/format";
@@ -15,6 +15,7 @@ import { ButtonLink, cx, PageHeader, Panel, Stat, Tag, TeamBadge } from "../ui";
 import { UnitCard, unitEdges } from "../UnitMatchups";
 import { HistoryTable } from "./SimScreen";
 import { OffseasonHub } from "../OffseasonHub";
+import { ScenarioCards } from "../ScenarioCards";
 
 export function Dashboard() {
   const { state } = useGame();
@@ -25,7 +26,7 @@ export function Dashboard() {
     <>
       <PageHeader
         title={state.offseason ? "Offseason" : seasonOver(state) ? "Season wrap" : playoffs ? "Playoff preview" : "Weekly preview"}
-        sub={`Season ${state.season} · ${state.offseason ? "Offseason" : `${weekLabel(state.week)} · ${dateLabel(state.week)}`}`}
+        sub={`Season ${state.season} · ${state.offseason ? "Offseason" : `${weekLabel(state.week, state.season)} · ${dateLabel(state.week, state.season)}`}`}
         right={!seasonOver(state) && <ButtonLink href="/sim">{hasGame ? "Game plan & sim" : "Bracket & sim"}</ButtonLink>}
       />
 
@@ -55,16 +56,7 @@ function Alerts({ state }: { state: GameState }) {
   const questionable = state.players.filter((p) => state.injuries[p.id]?.status === "questionable");
   return (
     <>
-      {rookOpen(state) && (
-        <Link href="/recruiting" className="mb-3 flex items-center gap-3 rounded-lg border border-accent/40 bg-accent/10 px-4 py-3 transition-colors hover:bg-accent/15">
-          <Tag>Recruiting</Tag>
-          <p className="flex-1 text-sm">
-            <span className="font-semibold">Jalen Rook</span> (committed 5★ QB): Bayou offered $1.1M. Match it before Early Signing Day ({KEY_DATES.signingDay}) or he
-            may flip.
-          </p>
-          <span className="font-display text-sm tracking-wider text-accent-hi">Respond →</span>
-        </Link>
-      )}
+      <ScenarioCards state={state} compact />
       {questionable.length > 0 && !seasonOver(state) && (
         <Link href="/sim" className="mb-3 flex items-center gap-3 rounded-lg border border-gold/40 bg-gold/10 px-4 py-3 transition-colors hover:bg-gold/15">
           <Tag tone="gold">Game-time call</Tag>
@@ -82,7 +74,7 @@ function Alerts({ state }: { state: GameState }) {
 function LastResultBanner({ state }: { state: GameState }) {
   const r = state.recaps[state.recaps.length - 1];
   if (!r) return null;
-  let body = `${weekLabel(r.week)} results are in`;
+  let body = `${weekLabel(r.week, state.season)} results are in`;
   let tone: "good" | "accent" | "muted" = "muted";
   let tag = "Final";
   if (r.game) {
@@ -90,7 +82,7 @@ function LastResultBanner({ state }: { state: GameState }) {
     const us = home ? r.game.homeScore : r.game.awayScore;
     const them = home ? r.game.awayScore : r.game.homeScore;
     const opp = home ? r.game.away : r.game.home;
-    body = `${weekLabel(r.week)}: Stallions ${us}, ${TEAMS[opp].name} ${them}`;
+    body = `${weekLabel(r.week, state.season)}: Stallions ${us}, ${TEAMS[opp].name} ${them}`;
     tone = us > them ? "good" : "accent";
     tag = us > them ? "Final · W" : "Final · L";
   }
@@ -117,12 +109,13 @@ function Preview({ state }: { state: GameState }) {
   const me = standingOf(state, USER_TEAM)!;
   const edges = unitEdges(state, m.us, m.them).slice(0, 6);
   const upsets = others.filter((g) => g.p > 0.35 && g.p < 0.65);
-  const ranked = others.filter((g) => TEAMS[g.home].ranked && TEAMS[g.away].ranked);
+  const rankOf = (id: TeamId) => standingOf(state, id)?.rank ?? 99;
+  const ranked = others.filter((g) => rankOf(g.home) <= 25 && rankOf(g.away) <= 25);
 
   return (
     <div className="grid gap-5 lg:grid-cols-12">
       <div className="lg:col-span-12">
-        <p className="font-display mb-2 text-xs tracking-[0.2em] text-accent-hi">{playoffs ? PLAYOFF_ROUNDS[roundOf(state.week)] : "Game of the week"}</p>
+        <p className="font-display mb-2 text-xs tracking-[0.2em] text-accent-hi">{playoffs ? playoffFormat(state.season).rounds[roundOf(state.week)] : "Game of the week"}</p>
         <MatchupHero state={state} m={m} />
       </div>
 
@@ -162,7 +155,7 @@ function Preview({ state }: { state: GameState }) {
             <Stat label="Win this round" value={pct(m.winProb)} />
           </div>
           <ol className="mt-4 space-y-1.5 text-sm">
-            {PLAYOFF_ROUNDS.map((r, i) => {
+            {playoffFormat(state.season).rounds.map((r, i) => {
               const now = roundOf(state.week);
               return (
                 <li key={r} className={cx("flex justify-between", i < now ? "text-good" : i === now ? "font-semibold" : "text-muted")}>
@@ -294,7 +287,7 @@ function SeasonStatus({ state }: { state: GameState }) {
             <p className="font-display text-2xl font-bold">
               {me.wins}–{me.losses} · Final rank #{me.rank}
             </p>
-            <p className="text-sm text-muted">{seed ? `No. ${seed} seed in the 12-team field.` : "The committee left you out."}</p>
+            <p className="text-sm text-muted">{seed ? `No. ${seed} seed in the ${playoffFormat(state.season).size}-team field.` : "The committee left you out."}</p>
           </div>
         </div>
         <ButtonLink href="/sim" variant="outline" className="mt-4">
@@ -313,7 +306,7 @@ function SeasonStatus({ state }: { state: GameState }) {
               const opp = home ? g.away : g.home;
               return (
                 <li key={r.week} className="flex items-center gap-3 rounded-md border border-line bg-bg-2/70 px-3 py-2">
-                  <span className="font-display w-24 shrink-0 text-xs text-muted">{weekLabel(r.week)}</span>
+                  <span className="font-display w-24 shrink-0 text-xs text-muted">{weekLabel(r.week, state.season)}</span>
                   <TeamBadge id={opp} size="sm" />
                   <span className="flex-1 truncate text-sm">
                     {home ? "vs" : "at"} {TEAMS[opp].name}

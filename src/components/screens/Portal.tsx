@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { type PortalPlayer } from "@/lib/game/data";
-import { KEY_DATES, watchList } from "@/lib/game/state";
+import { keyDates, watchList } from "@/lib/game/state";
 import { money } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { Button, cx, Dialog, PageHeader, Panel, Tag } from "../ui";
@@ -27,7 +27,7 @@ function PortalWatch() {
 
   return (
     <>
-      <PageHeader title="Portal watch" sub={`Season ${state.season} · window closed until January (${KEY_DATES.portalWindow})`} />
+      <PageHeader title="Portal watch" sub={`Season ${state.season} · window closed until January (${keyDates(state.season).portalWindow})`} />
 
       <div className="mb-5 rounded-lg border border-line bg-panel px-4 py-3 text-sm leading-6 text-muted">
         College football has one transfer window, in early January — there&apos;s no in-season or spring window. Use the season to scout who&apos;s

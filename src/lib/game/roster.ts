@@ -1,6 +1,6 @@
 // Stallions roster, depth chart and the lineup math that feeds the sim. Pure TypeScript.
 
-import { ROOK, TEAMS, type Skill, type TeamId } from "./data";
+import { TEAMS, type Skill, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
 
 export type Pos = "QB" | "RB" | "WR" | "TE" | "OT" | "IOL" | "EDGE" | "DT" | "LB" | "CB" | "S" | "K" | "P";
@@ -17,6 +17,8 @@ export interface Player {
   nil: number; // annual NIL deal
   pot?: number; // hidden potential; derived from id and class year when missing
   source?: "portal" | "recruit" | "walkon";
+  promised?: boolean; // promised a bigger role this season: won't enter the January portal
+  frustrated?: boolean; // unhappy with playing time: will ask to transfer in January
 }
 
 export interface Injury {
@@ -87,11 +89,6 @@ export function initialDepth(players: Player[] = ROSTER): Record<Pos, string[]> 
   const depth = Object.fromEntries(POS_ORDER.map((pos) => [pos, [] as string[]])) as Record<Pos, string[]>;
   for (const pl of players) depth[pl.pos].push(pl.id);
   return depth;
-}
-
-/** Jalen Rook as a signed high-school recruit (Season 1 scenario). */
-export function rookSignee(amount: number): Player {
-  return { id: ROOK.id, name: ROOK.name, num: 4, pos: ROOK.pos, yr: "HS", ovr: ROOK.ovr, pot: ROOK.pot, hometown: ROOK.hometown, nil: amount, source: "recruit" };
 }
 
 // ---- Lineup ---------------------------------------------------------------------
