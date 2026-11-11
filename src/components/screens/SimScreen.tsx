@@ -7,13 +7,13 @@ import { FINAL_WEEK, SCOUTING, TEAMS, USER_TEAM, type TeamId } from "@/lib/game/
 import type { DefensePlan, Drive, GameResult, OffensePlan, StatLine } from "@/lib/game/sim";
 import {
   champion, currentUserFixture, findPortalPlayer, firstWeek, isPlayoffs, PLAYOFF_ROUNDS, PLAYOFF_START, playoffField, playoffFixtures,
-  roundOf, scheduleFixture, seasonOver, seedOf, startNextSeason, standingOf, userEliminated, weekLabel, type GameState, type Score,
+  roundOf, scheduleFixture, seasonOver, seasonSummary, seedOf, userEliminated, weekLabel, type GameState, type Score,
   type WeekRecap,
 } from "@/lib/game/state";
-import { money } from "@/lib/format";
 import { pct } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { MatchupHero, useMatchup, type MatchupInfo } from "../Matchup";
+import { OffseasonHub } from "../OffseasonHub";
 import { Button, cx, PageHeader, Panel, Stat, Tag, TeamBadge } from "../ui";
 import { UnitCard, unitEdges } from "../UnitMatchups";
 
@@ -499,7 +499,7 @@ function SeasonComplete({ state }: { state: GameState }) {
             <p className="font-display text-xs tracking-[0.2em] text-gold">National champion</p>
             <p className="font-display text-3xl leading-tight font-bold sm:text-5xl">{TEAMS[champ].name}</p>
             <p className="mt-1 text-muted">
-              {won ? "The Stallions finish what they started. Now go do it again." : "The offseason starts now."}
+              {won ? "The Stallions finish what they started. Now go do it again." : "The offseason starts below."}
             </p>
           </div>
         </div>
@@ -514,55 +514,28 @@ function SeasonComplete({ state }: { state: GameState }) {
 
 function Offseason({ state }: { state: GameState }) {
   const { dispatch } = useGame();
-  const next = startNextSeason(state); // pure preview of exactly what "Begin" will do
-  const r = next.lastOffseason!;
-  const myRank = standingOf(next, USER_TEAM)!.rank;
-  const gains = [...r.progressed].sort((a, b) => b.to - b.from - (a.to - a.from)).slice(0, 6);
   return (
     <div className="grid gap-5 lg:grid-cols-12">
-      <Panel kicker="Offseason" title={`Building Season ${next.season}`} className="lg:col-span-8">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Stat label="Graduating" value={r.graduated.length} />
-          <Stat label="Newcomers" value={r.freshmen.length + r.enrolled.length} tone="good" />
-          <Stat label="Next NIL budget" value={money(next.nilBudget)} tone="gold" />
-          <Stat label="Preseason rank" value={`#${myRank}`} />
-        </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div>
-            <p className="font-display mb-1.5 text-xs tracking-widest text-muted">Biggest jumps</p>
-            <ul className="space-y-1 text-sm">
-              {gains.map((g) => (
-                <li key={g.player.id} className="flex justify-between">
-                  <span>
-                    {g.player.pos} {g.player.name}
-                  </span>
-                  <span className="font-display tabular text-good">
-                    {g.from} → {g.to}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div>
-            <p className="font-display mb-1.5 text-xs tracking-widest text-muted">Graduating</p>
-            <p className="text-sm leading-6 text-muted">{r.graduated.map((p) => `${p.pos} ${p.name}`).join(" · ") || "Nobody"}</p>
-            {r.enrolled.length > 0 && (
-              <>
-                <p className="font-display mt-3 mb-1.5 text-xs tracking-widest text-muted">Signees enrolling</p>
-                <p className="text-sm">{r.enrolled.map((p) => `${p.pos} ${p.name} (${p.ovr})`).join(" · ")}</p>
-              </>
-            )}
-          </div>
-        </div>
-        <p className="mt-4 text-xs text-muted">
-          {r.freshmen.length} freshmen fill the open spots for now; recruiting your own class and the offseason portal window come in the next update.
-        </p>
-        <Button className="mt-4 w-full sm:w-auto" onClick={() => dispatch({ type: "season/next" })}>
-          Begin Season {next.season}
-        </Button>
-      </Panel>
+      <div className="lg:col-span-8">
+        {state.offseason ? (
+          <OffseasonHub state={state} />
+        ) : (
+          <Panel kicker="What's next" title="The offseason">
+            <p className="max-w-2xl leading-6 text-muted">
+              Seniors graduate and everyone else develops. Then the portal window opens — keep your own players from leaving and bid on
+              transfers — and you recruit a high-school class over three rounds before Signing Day.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button onClick={() => dispatch({ type: "offseason/start" })}>Start the offseason</Button>
+              <Button variant="ghost" onClick={() => dispatch({ type: "season/next" })}>
+                Skip straight to Season {state.season + 1}
+              </Button>
+            </div>
+          </Panel>
+        )}
+      </div>
       <Panel kicker="Program" title="History" className="lg:col-span-4">
-        <HistoryTable rows={next.history} />
+        <HistoryTable rows={state.offseason ? state.history : [...state.history, seasonSummary(state)]} />
       </Panel>
     </div>
   );

@@ -4,7 +4,8 @@ import {
   BYE_SEEDS, FINAL_WEEK, FIRST_WEEK, INITIAL_STANDINGS, PLAYOFF_FIELD, PORTAL, ROOK_ASK, ROOK_PORTAL,
   SCHEDULE, TEAMS, USER_TEAM, type Fixture, type PortalPlayer, type TeamId,
 } from "./data";
-import { advanceRoster, ALL_TEAMS, baseRatings, driftRatings, generateSchedule, type OffseasonReport, type Ratings } from "./season";
+import { ageRoster, ALL_TEAMS, baseRatings, driftRatings, emptyReport, fillAndOrder, generateSchedule, type OffseasonReport, type Ratings } from "./season";
+import * as Off from "./offseason";
 import { hashSeed, makeRng } from "./rng";
 import {
   INITIAL_INJURIES, POS_LABEL, ROSTER, SIDE, STARTERS, initialDepth, isAvailable, playerFromPortal, ratingLossWithout,
@@ -102,7 +103,8 @@ export interface GameState {
   schedule: Record<number, Fixture[]>;
   teamRatings: Ratings; // every team's base ratings this season (the user's come from the depth chart)
   history: SeasonSummary[];
-  lastOffseason: OffseasonReport | null; // shown at the start of a new season
+  lastOffseason: OffseasonReport | null; // built up during the offseason, shown at the start of the new season
+  offseason: Off.OffseasonState | null; // non-null between the title game and the next season
   nilBudget: number;
   scholarships: number;
   hype: number;
@@ -135,7 +137,17 @@ export type Action =
   | { type: "gametime/set"; playerId: string; call: "start" | "rest" }
   | { type: "sim/week" }
   | { type: "sim/toPlayoffs" }
-  | { type: "season/next" }
+  | { type: "season/next" } // skip the offseason: let the portal and recruiting resolve with no moves
+  | { type: "offseason/start" }
+  | { type: "offseason/departure"; playerId: string; call: "keep" | "release" }
+  | { type: "offseason/bid"; id: string }
+  | { type: "offseason/closePortal" }
+  | { type: "recruit/pitch"; id: string }
+  | { type: "recruit/visit"; id: string }
+  | { type: "recruit/offer"; id: string }
+  | { type: "recruit/withdraw"; id: string }
+  | { type: "recruit/endRound" }
+  | { type: "offseason/begin" }
   | { type: "recap/seen" }
   | { type: "reset" };
 
@@ -163,6 +175,7 @@ export function initialState(seed: number = Math.floor(Math.random() * 2 ** 31))
     teamRatings: baseRatings(),
     history: [],
     lastOffseason: null,
+    offseason: null,
     nilBudget: 2_100_000,
     scholarships: 3,
     hype: 50,
@@ -470,8 +483,84 @@ export function reducer(s: GameState, a: Action): GameState {
       return next;
     }
 
-    case "season/next":
-      return seasonOver(s) ? startNextSeason(s) : s;
+    case "season/next": {
+      if (!seasonOver(s)) return s;
+      let next = s.offseason ? s : startOffseason(s);
+      if (next.offseason!.phase === "portal") next = reducer(next, { type: "offseason/closePortal" });
+      while (next.offseason!.phase === "recruiting") next = reducer(next, { type: "recruit/endRound" });
+      return beginSeason(next);
+    }
+
+    case "offseason/start":
+      return seasonOver(s) && !s.offseason ? startOffseason(s) : s;
+
+    case "offseason/departure": {
+      const off = s.offseason;
+      const d = off?.departures.find((x) => x.playerId === a.playerId);
+      if (!off || off.phase !== "portal" || !d || d.call === a.call) return s;
+      // Keeping him costs an NIL raise now; changing your mind refunds it.
+      const nilBudget = s.nilBudget + (d.call === "keep" ? d.keepCost : 0) - (a.call === "keep" ? d.keepCost : 0);
+      if (nilBudget < 0) return s;
+      const raise = a.call === "keep" ? d.keepCost : d.call === "keep" ? -d.keepCost : 0;
+      const players = s.players.map((p) => (p.id === a.playerId ? { ...p, nil: p.nil + raise } : p));
+      return { ...s, nilBudget, players, offseason: { ...off, departures: off.departures.map((x) => (x.playerId === a.playerId ? { ...x, call: a.call } : x)) } };
+    }
+
+    case "offseason/bid": {
+      const off = s.offseason;
+      const t = off?.pool.find((x) => x.id === a.id);
+      if (!off || off.phase !== "portal" || !t || off.bids.some((b) => b.id === a.id)) return s;
+      if (s.nilBudget < t.ask || Off.openSpots(s.players, off) < 1) return s;
+      return { ...s, nilBudget: s.nilBudget - t.ask, offseason: { ...off, bids: [...off.bids, { id: t.id, amount: t.ask, status: "pending" }] } };
+    }
+
+    case "offseason/closePortal": {
+      const off = s.offseason;
+      if (!off || off.phase !== "portal") return s;
+      const r = Off.closePortal(s.players, off, s.nilBudget, s.seed, s.season, s.hype, prestige(s));
+      const keep = new Set(r.players.map((p) => p.id));
+      const depth = Object.fromEntries(Object.entries(s.depth).map(([pos, ids]) => [pos, ids.filter((id) => keep.has(id))])) as GameState["depth"];
+      return {
+        ...s,
+        players: r.players,
+        depth,
+        nilBudget: r.nil,
+        offseason: r.off,
+        lastOffseason: { ...s.lastOffseason!, transfersOut: r.transfersOut, transfersIn: r.transfersIn },
+      };
+    }
+
+    case "recruit/pitch":
+    case "recruit/visit": {
+      const off = s.offseason;
+      if (!off || off.phase !== "recruiting") return s;
+      const next = a.type === "recruit/pitch" ? Off.pitch(off, a.id, s.seed) : Off.visit(off, a.id, s.seed);
+      return next === off ? s : { ...s, offseason: next };
+    }
+
+    case "recruit/offer":
+    case "recruit/withdraw": {
+      const off = s.offseason;
+      if (!off || off.phase !== "recruiting") return s;
+      const r = a.type === "recruit/offer" ? Off.offer(off, a.id, s.nilBudget, Off.openSpots(s.players, off)) : Off.withdraw(off, a.id, s.nilBudget);
+      return r.off === off ? s : { ...s, nilBudget: r.nil, offseason: r.off };
+    }
+
+    case "recruit/endRound": {
+      const off = s.offseason;
+      if (!off || off.phase !== "recruiting") return s;
+      const r = Off.endRound(s.players, off, s.nilBudget, s.seed, s.season);
+      return {
+        ...s,
+        players: r.players,
+        nilBudget: r.nil,
+        offseason: r.off,
+        lastOffseason: r.off.phase === "ready" ? { ...s.lastOffseason!, recruits: r.recruits } : s.lastOffseason,
+      };
+    }
+
+    case "offseason/begin":
+      return s.offseason?.phase === "ready" ? beginSeason(s) : s;
   }
 }
 
@@ -682,35 +771,78 @@ export function seasonSummary(s: GameState): SeasonSummary {
   return { season: s.season, wins: me.wins, losses: me.losses, rank: me.rank, seed, finish, champion: champ };
 }
 
-/** Offseason: archive the season, develop the roster, reshuffle the league and set a new 12-week schedule. */
-export function startNextSeason(s: GameState): GameState {
+/** Program prestige (0-1) from the most recent finished season; drives recruiting interest and portal pull. */
+export function prestige(s: GameState) {
+  const last = s.history[s.history.length - 1];
+  return last ? Off.prestigeFrom(last.finish, last.rank) : 0.4;
+}
+
+/** Roster spots left under the cap: during the offseason this also counts pending bids and offers. */
+export function rosterSpots(s: GameState) {
+  return s.offseason ? Off.openSpots(s.players, s.offseason) : Off.ROSTER_MAX - s.players.length;
+}
+
+/**
+ * Start the offseason: archive the season, graduate seniors and develop everyone else,
+ * reshuffle the league, set next year's NIL budget, and open the portal window and recruiting board.
+ */
+export function startOffseason(s: GameState): GameState {
   const summary = seasonSummary(s);
+  const nextSeason = s.season + 1;
+  const { players, report } = ageRoster(s.players, s.seed, nextSeason);
+  const ids = new Set(players.map((p) => p.id));
+  const depth = Object.fromEntries(Object.entries(s.depth).map(([pos, list]) => [pos, list.filter((id) => ids.has(id))])) as GameState["depth"];
+  // Signees who just enrolled join the depth chart now, ordered by rating.
+  for (const p of report.enrolled) {
+    if (depth[p.pos].includes(p.id)) continue;
+    const list = [...depth[p.pos], p.id];
+    const byId = new Map(players.map((x) => [x.id, x]));
+    depth[p.pos] = list.sort((x, y) => byId.get(y)!.ovr - byId.get(x)!.ovr);
+  }
+  const playoffBonus = summary.finish === "National champions" ? 300_000 : summary.seed ? 100_000 : 0;
+  return {
+    ...s,
+    history: [...s.history, summary],
+    players,
+    depth,
+    injuries: {},
+    gameTime: {},
+    bids: [],
+    scouts: [],
+    teamRatings: driftRatings(s.teamRatings, s.seed, nextSeason),
+    nilBudget: 2_000_000 + summary.wins * 25_000 + playoffBonus,
+    lastOffseason: report,
+    offseason: Off.openOffseason(players, depth, s.seed, nextSeason, Off.prestigeFrom(summary.finish, summary.rank)),
+    unseenRecap: false,
+    news: [news("RECRUITING", `Offseason opens: ${report.graduated.length} seniors graduate and the portal window opens`, 0, nextSeason), ...s.news].slice(0, 40),
+  };
+}
+
+/** Begin the next season: walk-ons fill gaps, then a new 12-week schedule and preseason poll. */
+export function beginSeason(s: GameState): GameState {
   const season = s.season + 1;
-  const { players, depth, report } = advanceRoster(s.players, s.depth, s.seed, season);
-  const teamRatingsNext = driftRatings(s.teamRatings, s.seed, season);
+  const { players, depth, walkOns } = fillAndOrder(s.players, s.depth, s.seed, season);
+  const report = { ...(s.lastOffseason ?? emptyReport()), walkOns };
   const mine = teamRatings(USER_TEAM, { players, depth, injuries: {}, gameTime: {} });
   const prevRank = new Map(s.standings.map((t) => [t.id, t.rank]));
 
   // Preseason poll: team strength plus a little credit for last year's finish.
   const power = (id: TeamId) => {
-    const r = id === USER_TEAM ? mine : teamRatingsNext[id];
+    const r = id === USER_TEAM ? mine : s.teamRatings[id];
     return r.off + r.def + Math.max(0, 18 - (prevRank.get(id) ?? 25)) * 0.4;
   };
   const order = [...ALL_TEAMS].sort((a, b) => power(b) - power(a));
   const standings: Standing[] = order.map((id, i) => ({ id, wins: 0, losses: 0, sos: 0.5, score: 100 - i * SPACING, rank: i + 1, prevRank: i + 1 }));
   const myRank = standings.find((t) => t.id === USER_TEAM)!.rank;
-
-  const playoffBonus = summary.finish === "National champions" ? 300_000 : summary.seed ? 100_000 : 0;
-  const nilBudget = 2_000_000 + summary.wins * 25_000 + playoffBonus;
+  const newcomers = report.transfersIn.length + report.recruits.length + report.enrolled.length;
 
   return {
     ...s,
     season,
     week: 1,
     schedule: generateSchedule(hashSeed("season", s.seed, season)),
-    teamRatings: teamRatingsNext,
-    history: [...s.history, summary],
     lastOffseason: report,
+    offseason: null,
     players,
     depth,
     injuries: {},
@@ -720,15 +852,14 @@ export function startNextSeason(s: GameState): GameState {
     playoff: null,
     recaps: [],
     unseenRecap: false,
-    nilBudget,
-    scholarships: 3,
+    scholarships: Math.max(0, Off.ROSTER_MAX - players.length),
     bids: [],
     scouts: [],
     press: null,
     hype: Math.round(50 + (s.hype - 50) * 0.5),
     news: [
       news("RANKINGS", `Preseason poll: Lone Star opens Season ${season} at No. ${myRank}`, 0, season),
-      news("RECRUITING", `${report.graduated.length} seniors graduate; ${report.freshmen.length + report.enrolled.length} newcomers join the Stallions`, 0, season),
+      news("RECRUITING", `${newcomers} newcomers join the Stallions for Season ${season}`, 0, season),
       ...s.news,
     ].slice(0, 40),
   };
@@ -755,8 +886,11 @@ export function loadState(raw: string | null): GameState {
     let parsed = JSON.parse(raw) as GameState;
     // Version 3 saves predate multiple seasons: they are Season 1 on the fixed schedule.
     if (parsed?.version === 3) {
-      parsed = { ...parsed, version: STATE_VERSION, season: 1, schedule: SCHEDULE, teamRatings: baseRatings(), history: [], lastOffseason: null };
+      parsed = { ...parsed, version: STATE_VERSION, season: 1, schedule: SCHEDULE, teamRatings: baseRatings(), history: [], lastOffseason: null, offseason: null };
     }
+    // Saves from before the offseason update: no offseason field, and an older report shape.
+    if (parsed && parsed.offseason === undefined) parsed = { ...parsed, offseason: null };
+    if (parsed?.lastOffseason) parsed = { ...parsed, lastOffseason: { ...emptyReport(), ...parsed.lastOffseason } };
     if (parsed?.version !== STATE_VERSION || !Array.isArray(parsed.standings) || !parsed.depth || typeof parsed.seed !== "number") return initialState();
     return parsed;
   } catch {

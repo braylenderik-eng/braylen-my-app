@@ -85,26 +85,35 @@ export function potentialOf(p: Player): number {
 
 const NEXT_YEAR: Record<Player["yr"], Year | null> = { HS: "Fr", Fr: "So", So: "Jr", Jr: "Sr", Sr: null };
 
-const FIRST = ["Aiden", "Bryson", "Cade", "Darian", "Ezra", "Gavin", "Hayden", "Jace", "Kendrick", "Landon", "Micah", "Nate", "Omari", "Reid", "Silas", "Tristan", "Xander", "Zion", "Brody", "Camden"];
-const LAST = ["Abbott", "Barrera", "Cobb", "Delacruz", "Easley", "Flores", "Gamble", "Hargrove", "Isom", "Jefferson", "Kimble", "Landry", "Moreno", "Norwood", "Oakes", "Pickett", "Rios", "Sandoval", "Thibodeaux", "Vaughn"];
+const FIRST = [
+  "Aiden", "Bryson", "Cade", "Darian", "Ezra", "Gavin", "Hayden", "Jace", "Kendrick", "Landon", "Micah", "Nate", "Omari", "Reid", "Silas",
+  "Tristan", "Xander", "Zion", "Brody", "Camden", "Amari", "Beau", "Caleb", "Dillon", "Elijah", "Finn", "Grady", "Hollis", "Isaac", "Jalen",
+  "Keon", "Luca", "Marcus", "Noah", "Owen", "Preston", "Quincy", "Rashad", "Tyrese", "Wyatt",
+];
+const LAST = [
+  "Abbott", "Barrera", "Cobb", "Delacruz", "Easley", "Flores", "Gamble", "Hargrove", "Isom", "Jefferson", "Kimble", "Landry", "Moreno",
+  "Norwood", "Oakes", "Pickett", "Rios", "Sandoval", "Thibodeaux", "Vaughn", "Alston", "Bridges", "Crowder", "Dunbar", "Ellington", "Fontenot",
+  "Garrison", "Hollins", "Ivory", "Jamison", "Kearse", "Lockett", "Mabry", "Nunez", "Ortega", "Prescott", "Ransom", "Strickland", "Tolliver", "Whitaker",
+];
 const TOWNS = ["Austin, TX", "Houston, TX", "Dallas, TX", "San Antonio, TX", "Lubbock, TX", "Shreveport, LA", "Tulsa, OK", "Little Rock, AR", "Albuquerque, NM", "Baton Rouge, LA"];
 
 export interface OffseasonReport {
   graduated: Player[];
-  enrolled: Player[]; // signees (like Rook) joining
-  freshmen: Player[]; // auto-signed to replace graduates
+  enrolled: Player[]; // high-school signees from earlier seasons joining now
   progressed: { player: Player; from: number; to: number }[];
+  transfersOut: Player[]; // your players who left through the portal
+  transfersIn: Player[]; // transfers you signed
+  recruits: Player[]; // high-school class you signed
+  walkOns: Player[]; // filled automatically where a position was still short
 }
 
-/**
- * Advance the roster one year: seniors leave, everyone else moves up a class and develops
- * toward their potential, signees enroll, and freshmen fill the open spots.
- */
-export function advanceRoster(players: Player[], depth: Record<Pos, string[]>, seed: number, season: number) {
-  const rng = makeRng(hashSeed("offseason", seed, season));
-  const report: OffseasonReport = { graduated: [], enrolled: [], freshmen: [], progressed: [] };
-  const next: Player[] = [];
+export const emptyReport = (): OffseasonReport => ({ graduated: [], enrolled: [], progressed: [], transfersOut: [], transfersIn: [], recruits: [], walkOns: [] });
 
+/** Seniors leave; everyone else moves up a class and develops toward their potential; signees enroll. */
+export function ageRoster(players: Player[], seed: number, season: number) {
+  const rng = makeRng(hashSeed("offseason", seed, season));
+  const report = emptyReport();
+  const next: Player[] = [];
   for (const p of players) {
     const yr = NEXT_YEAR[p.yr];
     if (!yr) {
@@ -121,45 +130,61 @@ export function advanceRoster(players: Player[], depth: Record<Pos, string[]>, s
     }
     next.push({ ...p, yr, ovr, pot });
   }
+  return { players: next, report };
+}
 
-  // Replace graduates position by position, and make sure every group has a backup.
-  const used = new Set(next.map((p) => p.num));
-  const freshman = (pos: Pos, i: number): Player => {
-    const r = makeRng(hashSeed("fr", seed, season, pos, i));
-    let num = 10 + Math.floor(r() * 89);
-    while (used.has(num)) num = 10 + ((num + 7) % 89);
-    used.add(num);
-    const ovr = 66 + Math.floor(r() * 9);
-    return {
-      id: `fr-${season}-${pos}-${i}`,
-      name: `${FIRST[Math.floor(r() * FIRST.length)]} ${LAST[Math.floor(r() * LAST.length)]}`,
-      num,
-      pos,
-      yr: "Fr",
-      ovr,
-      pot: Math.min(95, ovr + 10 + Math.floor(r() * 10)),
-      hometown: TOWNS[Math.floor(r() * TOWNS.length)],
-      nil: 15_000 + Math.floor(r() * 4) * 5_000,
-      source: "recruit",
-    };
+/** Make up a believable player. Used for walk-ons, recruits and transfers. */
+export function makePerson(key: (string | number)[]) {
+  const r = makeRng(hashSeed("person", ...key));
+  return {
+    name: `${FIRST[Math.floor(r() * FIRST.length)]} ${LAST[Math.floor(r() * LAST.length)]}`,
+    hometown: TOWNS[Math.floor(r() * TOWNS.length)],
+    rng: r,
   };
+}
+
+export function freeNumber(players: Player[], rng: () => number) {
+  const used = new Set(players.map((p) => p.num));
+  let num = 10 + Math.floor(rng() * 89);
+  for (let i = 0; i < 99 && used.has(num); i++) num = 1 + (num % 99);
+  return num;
+}
+
+/**
+ * Before a season starts: walk-ons fill any position without a starter plus one backup,
+ * then the depth chart keeps returners in the user's order and slots newcomers in by rating.
+ */
+export function fillAndOrder(players: Player[], depth: Record<Pos, string[]>, seed: number, season: number) {
+  const next = [...players];
+  const walkOns: Player[] = [];
   for (const pos of POS_ORDER) {
-    const leaving = report.graduated.filter((p) => p.pos === pos).length;
-    const have = next.filter((p) => p.pos === pos).length;
-    const need = Math.max(leaving, STARTERS[pos] + (pos === "K" || pos === "P" ? 0 : 1) - have);
+    const have = next.filter((p) => p.pos === pos && p.yr !== "HS").length;
+    const need = STARTERS[pos] + (pos === "K" || pos === "P" ? 0 : 1) - have;
     for (let i = 0; i < need; i++) {
-      const f = freshman(pos, i);
-      next.push(f);
-      report.freshmen.push(f);
+      const who = makePerson(["walkon", seed, season, pos, i]);
+      const ovr = 62 + Math.floor(who.rng() * 7);
+      const w: Player = {
+        id: `wo-${season}-${pos}-${i}`,
+        name: who.name,
+        num: freeNumber(next, who.rng),
+        pos,
+        yr: "Fr",
+        ovr,
+        pot: Math.min(90, ovr + 8 + Math.floor(who.rng() * 8)),
+        hometown: who.hometown,
+        nil: 0,
+        source: "walkon",
+      };
+      next.push(w);
+      walkOns.push(w);
     }
   }
 
-  // Keep the user's depth order for returners; slot newcomers in by rating.
   const byId = new Map(next.map((p) => [p.id, p]));
   const newDepth = {} as Record<Pos, string[]>;
   for (const pos of POS_ORDER) {
-    const returning = depth[pos].filter((id) => byId.has(id));
-    const newcomers = next.filter((p) => p.pos === pos && !returning.includes(p.id));
+    const returning = (depth[pos] ?? []).filter((id) => byId.has(id) && byId.get(id)!.yr !== "HS");
+    const newcomers = next.filter((p) => p.pos === pos && p.yr !== "HS" && !returning.includes(p.id));
     const merged = [...returning];
     for (const n of newcomers.sort((a, b) => b.ovr - a.ovr)) {
       const at = merged.findIndex((id) => byId.get(id)!.ovr < n.ovr);
@@ -167,6 +192,5 @@ export function advanceRoster(players: Player[], depth: Record<Pos, string[]>, s
     }
     newDepth[pos] = merged;
   }
-
-  return { players: next, depth: newDepth, report };
+  return { players: next, depth: newDepth, walkOns };
 }

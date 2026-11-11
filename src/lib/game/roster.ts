@@ -16,7 +16,7 @@ export interface Player {
   hometown: string;
   nil: number; // annual NIL deal
   pot?: number; // hidden potential; derived from id and class year when missing
-  source?: "portal" | "recruit";
+  source?: "portal" | "recruit" | "walkon";
 }
 
 export interface Injury {

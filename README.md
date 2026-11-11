@@ -2,8 +2,9 @@
 
 A college football GM game prototype. You run the Lone Star Stallions as a multi-season dynasty. Season 1 opens late
 in the year with a five-star recruit's $1.1M ultimatum; after that, every season is a full 12-week schedule and a
-12-team playoff, with an offseason in between where seniors graduate and players develop. Set your depth chart and
-game plan, sim your games, and build a history. All teams and players are fictional.
+12-team playoff. In the offseason, seniors graduate and players develop, then you work the transfer portal (keep
+your own players from leaving, bid on others) and recruit a high-school class over three rounds before Signing Day.
+Set your depth chart and game plan, sim your games, and build a history. All teams and players are fictional.
 
 Built with Next.js 16, TypeScript and Tailwind CSS. Progress is saved in the browser.
 
@@ -41,7 +42,12 @@ depth chart; Jalen Rook, a high-school signee, enrolls next season.
 
 `src/lib/game/season.ts` handles the jump between seasons: a generated 12-week schedule for all 20 teams, opponent
 ratings that drift each year, and the offseason (seniors graduate, everyone else moves up a class and grows toward a
-hidden potential, signees enroll, and freshmen fill open spots until recruiting arrives).
+hidden potential, signees enroll), and walk-ons that fill any position still short when a season starts.
+
+`src/lib/game/offseason.ts` runs the offseason: backups who want to transfer, a pool of transfers from other
+schools with bids that resolve when the window closes, and a recruiting board of 2★–5★ prospects. Each recruiting
+round you spend points on pitches and official visits while rival schools push back; only prospects with an NIL offer
+can sign, and on Signing Day each picks you or his top rival depending on who leads. Rosters are capped at 40.
 
 `src/lib/game/state.ts` holds the save: decisions, bids, injuries, season stats, the weekly sim of every game,
 committee re-ranking, playoff odds, the bracket, and program history. Season 1 covers weeks 11–12; later seasons

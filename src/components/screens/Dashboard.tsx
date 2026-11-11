@@ -14,6 +14,7 @@ import { MatchupHero, useMatchup } from "../Matchup";
 import { ButtonLink, cx, PageHeader, Panel, Stat, Tag, TeamBadge } from "../ui";
 import { UnitCard, unitEdges } from "../UnitMatchups";
 import { HistoryTable } from "./SimScreen";
+import { OffseasonHub } from "../OffseasonHub";
 
 export function Dashboard() {
   const { state } = useGame();
@@ -23,7 +24,7 @@ export function Dashboard() {
   return (
     <>
       <PageHeader
-        title={seasonOver(state) ? "Season wrap" : playoffs ? "Playoff preview" : "Weekly preview"}
+        title={state.offseason ? "Offseason" : seasonOver(state) ? "Season wrap" : playoffs ? "Playoff preview" : "Weekly preview"}
         sub={`Season ${state.season} · ${weekLabel(state.week)}${hasGame ? " · The week ahead" : ""}`}
         right={!seasonOver(state) && <ButtonLink href="/sim">{hasGame ? "Game plan & sim" : "Bracket & sim"}</ButtonLink>}
       />
@@ -32,7 +33,20 @@ export function Dashboard() {
       <Alerts state={state} />
       {state.season > 1 && state.recaps.length === 0 && <NewSeason state={state} />}
 
-      {hasGame ? <Preview state={state} /> : <SeasonStatus state={state} />}
+      {state.offseason ? (
+        <div className="grid gap-5 lg:grid-cols-12">
+          <div className="lg:col-span-8">
+            <OffseasonHub state={state} />
+          </div>
+          <Panel kicker="Program" title="History" className="lg:col-span-4">
+            <HistoryTable rows={state.history} />
+          </Panel>
+        </div>
+      ) : hasGame ? (
+        <Preview state={state} />
+      ) : (
+        <SeasonStatus state={state} />
+      )}
     </>
   );
 }
@@ -239,11 +253,17 @@ function NewSeason({ state }: { state: GameState }) {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Stat label="Preseason rank" value={`#${me.rank}`} tone="gold" />
           <Stat label="Graduated" value={r.graduated.length} />
-          <Stat label="Newcomers" value={r.freshmen.length + r.enrolled.length} tone="good" />
+          <Stat label="Newcomers" value={r.transfersIn.length + r.recruits.length + r.enrolled.length + r.walkOns.length} tone="good" />
           <Stat label="NIL budget" value={money(state.nilBudget)} />
         </div>
+        <p className="mt-3 text-sm text-muted">
+          {r.transfersIn.length} transfer{r.transfersIn.length === 1 ? "" : "s"} and {r.recruits.length} recruit{r.recruits.length === 1 ? "" : "s"} signed
+          {r.enrolled.length ? `, ${r.enrolled.length} signee${r.enrolled.length === 1 ? "" : "s"} enrolled` : ""}
+          {r.walkOns.length ? `, ${r.walkOns.length} walk-on${r.walkOns.length === 1 ? "" : "s"} added` : ""}
+          {r.transfersOut.length ? `; ${r.transfersOut.length} transferred out` : ""}.
+        </p>
         {gains.length > 0 && (
-          <p className="mt-3 text-sm text-muted">
+          <p className="mt-1 text-sm text-muted">
             Biggest jumps: {gains.map((g) => `${g.player.name} (${g.from}→${g.to})`).join(", ")}.{" "}
             <Link href="/roster" className="text-accent-hi hover:underline">
               Set the depth chart

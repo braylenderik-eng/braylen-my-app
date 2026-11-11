@@ -4,6 +4,7 @@ import { ROOK_ASK, ROOK_OFFERS } from "@/lib/game/data";
 import { money } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { Button, ButtonLink, cx, PageHeader, Panel, Stat, Tag } from "../ui";
+import { OffseasonRecruiting } from "./OffseasonRecruiting";
 
 const VISITS = [
   { date: "Oct 12", type: "Official visit", staff: "HC / OC", result: "Committed interest +7" },
@@ -12,6 +13,11 @@ const VISITS = [
 ];
 
 export function Recruiting() {
+  const { state } = useGame();
+  return state.offseason ? <OffseasonRecruiting state={state} /> : <SeasonRecruiting />;
+}
+
+function SeasonRecruiting() {
   const { state, dispatch } = useGame();
   const { rook } = state;
   const offers = ROOK_OFFERS.map((o) => (o.you ? { ...o, offer: rook.offer, interest: rook.interest } : o));
@@ -19,14 +25,14 @@ export function Recruiting() {
   const canPay = state.nilBudget >= ROOK_ASK && state.scholarships > 0;
 
   if (state.season > 1) {
-    const signees = state.players.filter((p) => p.source === "recruit" && p.yr === "Fr");
+    const signees = state.players.filter((p) => (p.source === "recruit" || p.source === "walkon") && p.yr === "Fr");
     return (
       <>
         <PageHeader title="Recruiting" sub={`Season ${state.season} · Class of next year`} />
-        <Panel kicker="Big board" title="Recruiting opens in the next update">
+        <Panel kicker="Big board" title="Recruiting opens in the offseason">
           <p className="max-w-2xl leading-6 text-muted">
-            Building your own recruiting class — a big board of prospects, NIL offers, visits and commitments — is the next round of
-            work. Until then, each offseason auto-signs freshmen to replace graduating seniors.
+            After the playoff, the offseason opens a big board of high-school prospects. You get three rounds of pitches and official
+            visits, make NIL offers, and find out who signs on Signing Day.
           </p>
           {signees.length > 0 && (
             <>

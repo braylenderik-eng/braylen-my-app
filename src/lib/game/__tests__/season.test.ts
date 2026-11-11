@@ -74,7 +74,8 @@ describe("offseason", () => {
     expect(next.recaps).toHaveLength(0);
     expect(Object.keys(next.injuries)).toHaveLength(0);
     expect(next.nilBudget).toBeGreaterThanOrEqual(2_000_000);
-    expect(next.scholarships).toBe(3);
+    expect(next.scholarships).toBe(40 - next.players.length);
+    expect(next.offseason).toBeNull();
   });
 
   test("Season 2 is a full 12-game season followed by the playoff", () => {

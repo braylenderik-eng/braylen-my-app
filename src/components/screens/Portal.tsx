@@ -6,8 +6,14 @@ import { canBid, portalBoard } from "@/lib/game/state";
 import { money } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { Button, cx, Dialog, PageHeader, Panel, Tag } from "../ui";
+import { OffseasonPortal } from "./OffseasonPortal";
 
 export function Portal() {
+  const { state } = useGame();
+  return state.offseason ? <OffseasonPortal state={state} /> : <SeasonPortal />;
+}
+
+function SeasonPortal() {
   const { state, dispatch } = useGame();
   const [query, setQuery] = useState("");
   const [pos, setPos] = useState<"All" | string>("All");
@@ -128,7 +134,7 @@ export function Portal() {
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-muted">
-                    {state.season > 1 ? "The transfer window is closed. The offseason portal window arrives in the next update." : "No one on your shortlist matches."}
+                    {state.season > 1 ? "The transfer window is closed. It reopens in the offseason, after the playoff." : "No one on your shortlist matches."}
                   </td>
                 </tr>
               )}
