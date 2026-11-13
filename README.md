@@ -110,6 +110,30 @@ New dynasties track your coach's career.
   player cards show career totals once a season is banked.
 - The quick start joins at Week 11, so awards begin in its second season.
 
+### Player development and the NFL Draft
+
+- **Early entry (January).** Juniors with a top-three-round grade may declare for the draft. The better his stock, the
+  likelier he goes:
+
+  | Projected round | Chance he declares |
+  | --- | --- |
+  | Round 1 | 90% |
+  | Round 2 | 65% |
+  | Round 3 | 40% |
+
+  For each one, make your pitch (an NIL raise set aside now, refunded if he leaves anyway) or wish him well.
+  Decisions settle when the transfer window closes. A projected first-rounder rarely comes back, even with a pitch.
+- **Draft grades** come from rating, position (QBs, edge rushers and tackles go higher) and awards. Player cards show
+  juniors' and seniors' projected rounds.
+- **The draft (late April)** runs as the new season begins. Graduating seniors and early entries are picked by round,
+  and the picks appear on the Stats page.
+- **Draft pedigree.** Players drafted in the last two springs make your pitch easier: up to +4 interest on next year's
+  recruiting board. Big programs pay for that by losing stars early.
+- **Spring practice.** Choose two position groups (for example Quarterbacks, Offensive line or Secondary). Players
+  there gain 1–3 points before the season, up to their potential.
+- **Redshirts.** Through Week 4, a freshman can be redshirted from his player card. He sits the season, keeps his class
+  year and develops a bit extra. It's once per career.
+
 ### Player portraits
 
 Players and prospects show realistic, game-style headshots: a pool of 319 AI-rendered portraits of fictional people

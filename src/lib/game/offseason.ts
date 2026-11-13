@@ -6,6 +6,7 @@
 import { PORTAL, TEAMS, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
 import { playingTime, retentionCost, transferAsk } from "./economy";
+import type { Declaration } from "./draft";
 import { POS_ORDER, STARTERS, type Player, type Pos } from "./roster";
 import { ROSTER_MAX, needWeights, weightedPos } from "./recruiting";
 import { ALL_TEAMS, freeNumber, makePerson } from "./season";
@@ -38,6 +39,9 @@ export interface Transfer {
 
 export interface OffseasonState {
   phase: Phase;
+  declarations?: Declaration[]; // juniors who declared for the NFL Draft
+  draftPool?: (Player & { early?: boolean })[]; // your draft class: graduating seniors and early entries
+  focus?: string[]; // spring practice position groups
   departures: Departure[];
   pool: Transfer[];
   bids: { id: string; amount: number; status: "pending" | "signed" | "lost" }[];

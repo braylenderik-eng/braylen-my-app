@@ -14,6 +14,7 @@ import * as L from "./league";
 import * as Car from "./career";
 import * as A from "./awards";
 import * as Eco from "./economy";
+import * as D from "./draft";
 import {
   INITIAL_INJURIES, POS_LABEL, ROSTER, rosterFor, SIDE, STARTERS, initialDepth, isAvailable, ratingLossWithout,
   skillFor, starters, teamRatings, type Injury, type LineupInput, type Player, type Pos,
@@ -21,7 +22,7 @@ import {
 import { DEFAULT_PLAN, simulateGame, type GamePlan, type GameResult, type GameTimeRisk, type SimOptions, type StatLine } from "./sim";
 
 export const STORAGE_KEY = "portal-wars-v3";
-export const STATE_VERSION = 10;
+export const STATE_VERSION = 11;
 
 // ---- Calendar and playoff format ------------------------------------------------
 // Season N is the (2025 + N) college football season. Season 1 (2026) uses the 12-team playoff;
@@ -201,6 +202,7 @@ export interface GameState {
   league: A.LeagueStats | null; // every other program's stars and their season lines
   awards: A.AwardResult[]; // every season's award winners
   allConference: { season: number; picks: A.AllConfPick[] } | null; // your conference's first team, this season
+  draftHistory: D.DraftPick[]; // your players taken in every NFL Draft
   season: number;
   week: number;
   schedule: Record<number, Fixture[]>;
@@ -247,6 +249,9 @@ export type Action =
   | { type: "offseason/start" }
   | { type: "offseason/departure"; playerId: string; call: "keep" | "release" }
   | { type: "offseason/bid"; id: string }
+  | { type: "offseason/declaration"; playerId: string; call: "pitch" | "release" }
+  | { type: "offseason/focus"; group: string }
+  | { type: "player/redshirt"; playerId: string; on: boolean }
   | { type: "offseason/closePortal" }
   | { type: "recruit/pitch"; id: string }
   | { type: "recruit/visit"; id: string }
@@ -298,6 +303,7 @@ export function initialState(seed: number = Math.floor(Math.random() * 2 ** 31))
     league: A.makeLeague(seed, 1, standings, USER_TEAM),
     awards: [],
     allConference: null,
+    draftHistory: [],
     season: 1,
     week: FIRST_WEEK,
     schedule: SCHEDULE,
@@ -736,6 +742,30 @@ export function reducer(s: GameState, a: Action): GameState {
       return { ...s, nilBudget, players, offseason: { ...off, departures: off.departures.map((x) => (x.playerId === a.playerId ? { ...x, call: a.call } : x)) } };
     }
 
+    case "offseason/declaration": {
+      const off = s.offseason;
+      const d = off?.declarations?.find((x) => x.playerId === a.playerId);
+      if (!off || off.phase !== "portal" || !d || d.call === a.call) return s;
+      // Making your pitch sets the raise aside now; changing your mind refunds it.
+      const nilBudget = s.nilBudget + (d.call === "pitch" ? d.cost : 0) - (a.call === "pitch" ? d.cost : 0);
+      if (nilBudget < 0) return s;
+      return { ...s, nilBudget, offseason: { ...off, declarations: off.declarations!.map((x) => (x.playerId === a.playerId ? { ...x, call: a.call } : x)) } };
+    }
+
+    case "offseason/focus": {
+      const off = s.offseason;
+      if (!off || !D.FOCUS_GROUPS[a.group]) return s;
+      const focus = off.focus ?? [];
+      const next = focus.includes(a.group) ? focus.filter((g) => g !== a.group) : focus.length < D.MAX_FOCUS ? [...focus, a.group] : focus;
+      return next === focus ? s : { ...s, offseason: { ...off, focus: next } };
+    }
+
+    case "player/redshirt": {
+      const p = s.players.find((x) => x.id === a.playerId);
+      if (!p || !D.canRedshirt(p, s.week, !s.offseason && s.week <= FINAL_WEEK) || !!p.redshirt === a.on) return s;
+      return { ...s, players: s.players.map((x) => (x.id === p.id ? { ...x, redshirt: a.on } : x)) };
+    }
+
     case "offseason/bid": {
       const off = s.offseason;
       const t = off?.pool.find((x) => x.id === a.id);
@@ -748,6 +778,23 @@ export function reducer(s: GameState, a: Action): GameState {
       const off = s.offseason;
       if (!off || off.phase !== "portal") return s;
       const r = Off.closePortal(s.players, off, s.nilBudget, s.seed, s.season, s.hype, prestige(s));
+      // Early entries decide too: a pitched player may come back (and gets his raise); the rest go pro.
+      const { stays, leaves } = D.resolveEntries(off.declarations ?? [], s.seed, s.season);
+      const leaving = new Set(leaves.map((d) => d.playerId));
+      const raise = new Map(stays.filter((d) => d.call === "pitch").map((d) => [d.playerId, d.cost]));
+      const refund = leaves.filter((d) => d.call === "pitch").reduce((n, d) => n + d.cost, 0);
+      const early = s.players.filter((p) => leaving.has(p.id)).map((p) => ({ ...p, early: true }));
+      r.players = r.players.filter((p) => !leaving.has(p.id)).map((p) => (raise.has(p.id) ? { ...p, nil: p.nil + raise.get(p.id)! } : p));
+      r.nil += refund;
+      r.off = {
+        ...r.off,
+        draftPool: [...(off.draftPool ?? []), ...early],
+        log: [
+          ...stays.map((d) => `${s.players.find((p) => p.id === d.playerId)?.name} is coming back for his senior year.`),
+          ...early.map((p) => `${p.pos} ${p.name} is going pro (projected ${D.roundLabel(D.projectedRound(p))}).`),
+          ...r.off.log,
+        ],
+      };
       const keep = new Set(r.players.map((p) => p.id));
       const depth = Object.fromEntries(Object.entries(s.depth).map(([pos, ids]) => [pos, ids.filter((id) => keep.has(id))])) as GameState["depth"];
       return {
@@ -1153,10 +1200,16 @@ export function startOffseason(s: GameState): GameState {
       Eco.MIN_ROOM.season,
     ),
     lastOffseason: report,
-    offseason: Off.openOffseason(players, depth, s.seed, nextSeason, s.team, !s.coach && nextSeason === 2),
+    offseason: withDraft(Off.openOffseason(players, depth, s.seed, nextSeason, s.team, !s.coach && nextSeason === 2), D.earlyEntries(banked, s.seed, s.season), report.graduated),
     unseenRecap: false,
     news: [...careerNews, news("PORTAL", `${report.graduated.length} seniors graduate; the January transfer window opens`, 0, nextSeason), ...s.news].slice(0, 40),
   };
+}
+
+/** Early entries and the draft class join the January window; declared players aren't also portal departures. */
+function withDraft(off: Off.OffseasonState, declarations: D.Declaration[], seniors: Player[]): Off.OffseasonState {
+  const declared = new Set(declarations.map((d) => d.playerId));
+  return { ...off, declarations, draftPool: seniors, focus: [], departures: off.departures.filter((d) => !declared.has(d.playerId)) };
 }
 
 /** Begin the next season: walk-ons fill gaps, then a new 12-week schedule and preseason poll. */
@@ -1166,10 +1219,14 @@ export function beginSeason(s: GameState): GameState {
 
 function beginSeasonCore(s: GameState): GameState {
   const season = s.season + 1;
-  const filled = fillAndOrder(s.players, s.depth, s.seed, season);
+  // Spring practice, then the NFL Draft (late April) for last season's class.
+  const spring = D.springPractice(s.players, s.offseason?.focus ?? [], s.seed, season);
+  const drafted = D.runDraft(s.offseason?.draftPool ?? [], s.seed, s.season);
+  const draftHistory = [...(s.draftHistory ?? []), ...drafted];
+  const filled = fillAndOrder(spring.players, s.depth, s.seed, season);
   const players = filled.players.map((p) => (p.promised || p.frustrated ? { ...p, promised: false, frustrated: false } : p));
   const { depth, walkOns } = filled;
-  const report = { ...(s.lastOffseason ?? emptyReport()), walkOns };
+  const report = { ...(s.lastOffseason ?? emptyReport()), walkOns, drafted, spring: spring.gains };
   const mine = teamRatings(s.team, { players, depth, injuries: {}, gameTime: {} });
   const prevRank = new Map(s.standings.map((t) => [t.id, t.rank]));
 
@@ -1194,7 +1251,8 @@ function beginSeasonCore(s: GameState): GameState {
     lastOffseason: report,
     offseason: null,
     // Next year's class: the board opens with the season and signs in December.
-    recruiting: Rec.createBoard(players, s.seed, season + 1, prestige(s), FINAL_WEEK, s.team, s.coach ? schemeFit(s.coach) : []),
+    recruiting: Rec.createBoard(players, s.seed, season + 1, prestige(s), FINAL_WEEK, s.team, s.coach ? schemeFit(s.coach) : [], D.draftPedigree(draftHistory, s.season)),
+    draftHistory,
     players,
     depth,
     injuries: {},
@@ -1211,6 +1269,7 @@ function beginSeasonCore(s: GameState): GameState {
     press: null,
     hype: Math.round(50 + (s.hype - 50) * 0.5),
     news: [
+      ...draftNews(drafted, s.team, season),
       news("RANKINGS", `Preseason poll: ${TEAMS[s.team].name} opens Season ${season} at No. ${myRank}`, 0, season),
       news("RECRUITING", `${newcomers} newcomers join the ${TEAMS[s.team].name} for Season ${season}`, 0, season),
       ...s.news,
@@ -1254,6 +1313,21 @@ function acceptJob(s: GameState, team: TeamId): GameState {
     offseason: Off.openOffseason(players, depth, s.seed, nextSeason, team, false),
     news: [news("LEAGUE", `${s.coach.name} leaves the ${from} for the ${TEAMS[team].name}`, 0, nextSeason), ...s.news].slice(0, 40),
   };
+}
+
+function draftNews(picks: D.DraftPick[], team: TeamId, season: number): NewsItem[] {
+  const taken = picks.filter((p) => p.round !== null);
+  if (!taken.length) return [];
+  const first = taken.filter((p) => p.round === 1);
+  const top = taken[0];
+  return [
+    news(
+      "LEAGUE",
+      `NFL Draft: ${taken.length} ${TEAMS[team].name} player${taken.length === 1 ? "" : "s"} selected${first.length ? `, ${first.length} in the first round` : ""}; ${top.name} goes No. ${top.pick}`,
+      0,
+      season,
+    ),
+  ];
 }
 
 // ---- Selection -----------------------------------------------------------------
@@ -1356,7 +1430,12 @@ export function loadState(raw: string | null): GameState {
       parsed = { ...parsed, version: 9, league: A.makeLeague(parsed.seed, parsed.season, parsed.standings, parsed.team), awards: [], allConference: null };
     }
     // Version 9 saves used pre-2026 money: re-price players, prospects, transfers and the budget.
-    if (parsed?.version === 9) parsed = rescaleEconomy(parsed);
+    if (parsed?.version === 9) parsed = { ...rescaleEconomy(parsed), version: 10 };
+    // Version 10 saves predate the NFL Draft and spring practice.
+    if (parsed?.version === 10) {
+      const o = parsed.offseason;
+      parsed = { ...parsed, version: STATE_VERSION, draftHistory: [], offseason: o ? { ...o, declarations: o.declarations ?? [], draftPool: o.draftPool ?? [], focus: o.focus ?? [] } : null };
+    }
     // Saves from before the offseason update: no offseason field, and an older report shape.
     if (parsed && parsed.offseason === undefined) parsed = { ...parsed, offseason: null };
     if (parsed?.lastOffseason) parsed = { ...parsed, lastOffseason: { ...emptyReport(), ...parsed.lastOffseason } };

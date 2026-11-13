@@ -8,6 +8,7 @@ import { awardsEnabled, weekLabel } from "@/lib/game/state";
 import type { StatLine } from "@/lib/game/sim";
 import { useGame } from "../GameProvider";
 import { PlayerFace } from "../PlayerFace";
+import { DraftHistory } from "../Development";
 import { cx, PageHeader, Panel, Tag, TeamBadge } from "../ui";
 
 const CATEGORIES: { key: keyof StatLine; label: string; fmt?: (c: A.Candidate) => string }[] = [
@@ -138,6 +139,10 @@ export function StatsScreen() {
             </ul>
           </Panel>
         )}
+
+        <div className="lg:col-span-12">
+          <DraftHistory state={state} />
+        </div>
 
         {past.length > 0 && (
           <Panel kicker="History" title={`${A.AWARDS.crown} winners`} className="lg:col-span-12" bodyClassName="p-0">

@@ -127,6 +127,8 @@ export interface OffseasonReport {
   transfersIn: Player[]; // transfers you signed
   recruits: Player[]; // high-school class you signed
   walkOns: Player[]; // filled automatically where a position was still short
+  drafted?: import("./draft").DraftPick[]; // your players taken in the NFL Draft this spring
+  spring?: { player: Player; from: number; to: number }[]; // spring practice gains
 }
 
 export const emptyReport = (): OffseasonReport => ({ graduated: [], enrolled: [], progressed: [], transfersOut: [], transfersIn: [], recruits: [], walkOns: [] });
@@ -137,7 +139,8 @@ export function ageRoster(players: Player[], seed: number, season: number) {
   const report = emptyReport();
   const next: Player[] = [];
   for (const p of players) {
-    const yr = NEXT_YEAR[p.yr];
+    // A redshirt keeps his class year (and develops a bit more for the year of practice).
+    const yr = p.redshirt ? (p.yr as Year) : NEXT_YEAR[p.yr];
     if (!yr) {
       report.graduated.push(p);
       continue;
@@ -146,11 +149,11 @@ export function ageRoster(players: Player[], seed: number, season: number) {
     let ovr = p.ovr;
     if (p.yr === "HS") report.enrolled.push(p);
     else {
-      const gain = Math.max(0, Math.round((pot - p.ovr) * 0.4 + (rng() - 0.35) * 3));
+      const gain = Math.max(0, Math.round((pot - p.ovr) * 0.4 + (rng() - 0.35) * 3)) + (p.redshirt ? 1 : 0);
       ovr = Math.min(pot, p.ovr + gain);
       if (ovr !== p.ovr) report.progressed.push({ player: p, from: p.ovr, to: ovr });
     }
-    next.push({ ...p, yr, ovr, pot });
+    next.push(p.redshirt ? { ...p, yr, ovr, pot, redshirt: false, rsUsed: true } : { ...p, yr, ovr, pot });
   }
   return { players: next, report };
 }

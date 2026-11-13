@@ -84,6 +84,7 @@ export function createBoard(
   weeks: number,
   team: TeamId = "stallions",
   fit: Pos[] = [],
+  bonus = 0, // draft pedigree: recent NFL picks make the pitch easier
 ): RecruitingState {
   const weights = needWeights(players);
   const others = ALL_TEAMS.filter((t) => t !== team);
@@ -109,7 +110,7 @@ export function createBoard(
       rival: pick(r, others),
       // Prospects who fit your schemes lean your way; others take a little more convincing.
       // Prestige helps, but playing time, scheme fit and home region matter as much as the brand.
-      you: clamp(Math.round(52 - stars * 6 + prestige * 15 + head + (r() - 0.5) * 16 + (fit.length ? (fit.includes(pos) ? 8 : -3) : 0) + (local ? 6 : 0) + (room === "path" ? 8 : room === "crowded" ? -8 : 0))),
+      you: clamp(Math.round(52 - stars * 6 + prestige * 15 + head + (r() - 0.5) * 16 + (fit.length ? (fit.includes(pos) ? 8 : -3) : 0) + (local ? 6 : 0) + (room === "path" ? 8 : room === "crowded" ? -8 : 0) + bonus)),
       them: clamp(Math.round(24 + stars * 5 + head + (r() - 0.5) * 16)),
       visited: false,
       offered: false,

@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import { attributes, isAvailable, POS_LABEL, POS_ORDER, SIDE, STARTERS, starters, teamRatings, type Player, type Pos } from "@/lib/game/roster";
-import { TEAMS } from "@/lib/game/data";
+import { FINAL_WEEK, TEAMS } from "@/lib/game/data";
 import { lineup, shortPositions, type GameState } from "@/lib/game/state";
 import { money } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { PlayerFace } from "../PlayerFace";
 import { statSummary } from "@/lib/game/awards";
 import { REV_SHARE_CAP } from "@/lib/game/economy";
-import { cx, Dialog, PageHeader, Panel, Stat, Tag } from "../ui";
+import { canRedshirt, projectedRound, REDSHIRT_DEADLINE, roundLabel } from "@/lib/game/draft";
+import { Button, cx, Dialog, PageHeader, Panel, Stat, Tag } from "../ui";
 
 export function Roster() {
   const { state } = useGame();
@@ -109,6 +110,7 @@ function PositionGroup({ pos, state, starterIds, onOpen }: { pos: Pos; state: Ga
                 <span className={cx("block truncate text-sm group-hover:text-accent-hi", starting ? "font-semibold" : "text-muted")}>
                   {p.name}
                   {p.source === "portal" && <span className="font-display ml-1.5 text-[10px] text-gold">PORTAL</span>}
+                  {p.redshirt && <span className="font-display ml-1.5 text-[10px] text-gold">REDSHIRT</span>}
                 </span>
                 <span className="block text-[11px] text-dim">
                   #{p.num} · {p.yr}
@@ -149,8 +151,10 @@ function PositionGroup({ pos, state, starterIds, onOpen }: { pos: Pos; state: Ga
 }
 
 function PlayerCard({ player, state, onClose }: { player: Player | null; state: GameState; onClose: () => void }) {
+  const { dispatch } = useGame();
   if (!player) return null;
-  const p = player;
+  // Read the live player, so changes made from the card (like a redshirt) show right away.
+  const p = state.players.find((x) => x.id === player.id) ?? player;
   const inj = state.injuries[p.id];
   const depthIndex = p.yr === "HS" ? -1 : state.depth[p.pos].indexOf(p.id);
   const s = state.seasonStats[p.id];
@@ -221,6 +225,38 @@ function PlayerCard({ player, state, onClose }: { player: Player | null; state: 
           </p>
         )}
       </div>
+      {(p.yr === "Jr" || p.yr === "Sr") && (
+        <p className="mt-1.5 text-sm">
+          <span className="text-muted">NFL Draft: </span>projected {roundLabel(projectedRound(p))}
+          {p.yr === "Jr" && projectedRound(p) !== null && projectedRound(p)! <= 3 && <span className="text-gold"> · could declare early</span>}
+        </p>
+      )}
+      {p.yr === "Fr" && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-line bg-bg-2/60 px-3 py-2 text-sm">
+          {p.rsUsed ? (
+            <span className="text-muted">Redshirt used: he kept a year of eligibility.</span>
+          ) : p.redshirt ? (
+            <>
+              <Tag tone="gold">Redshirting</Tag>
+              <span className="flex-1 text-muted">He sits this season, keeps his class year and develops extra.</span>
+              {canRedshirt(p, state.week, !state.offseason && state.week <= FINAL_WEEK) && (
+                <Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => dispatch({ type: "player/redshirt", playerId: p.id, on: false })}>
+                  Undo
+                </Button>
+              )}
+            </>
+          ) : canRedshirt(p, state.week, !state.offseason && state.week <= FINAL_WEEK) ? (
+            <>
+              <span className="flex-1 text-muted">Redshirt him: he sits this season but keeps a year of eligibility (until Week {REDSHIRT_DEADLINE}).</span>
+              <Button variant="outline" className="px-2 py-1 text-xs" onClick={() => dispatch({ type: "player/redshirt", playerId: p.id, on: true })}>
+                Redshirt
+              </Button>
+            </>
+          ) : (
+            <span className="text-muted">Redshirt window closed (Weeks 1–{REDSHIRT_DEADLINE}).</span>
+          )}
+        </div>
+      )}
       {p.awards && p.awards.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {p.awards.map((a) => (

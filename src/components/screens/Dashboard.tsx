@@ -17,6 +17,7 @@ import { HistoryTable } from "./SimScreen";
 import { OffseasonHub } from "../OffseasonHub";
 import { DEFENSE_STYLES, OFFENSE_STYLES } from "@/lib/game/program";
 import { ScenarioCards } from "../ScenarioCards";
+import { DraftClass, DraftDecisions, SpringFocus } from "../Development";
 import { AwardRaceCard, Carousel, CareerOver, ConferenceCard, RivalryBanner, RivalryCard, SecurityMeter } from "../Career";
 
 export function Dashboard() {
@@ -42,7 +43,16 @@ export function Dashboard() {
 
       {state.offseason ? (
         <div className="grid gap-5 lg:grid-cols-12">
-          <div className="lg:col-span-8">{state.career?.status === "over" || state.career?.status === "fired" ? null : <OffseasonHub state={state} />}</div>
+          <div className="space-y-5 lg:col-span-8">
+            {state.career?.status === "over" || state.career?.status === "fired" ? null : (
+              <>
+                <OffseasonHub state={state} />
+                <DraftDecisions state={state} />
+                <SpringFocus state={state} />
+                <DraftClass state={state} />
+              </>
+            )}
+          </div>
           <Panel kicker="Program" title="History" className="lg:col-span-4">
             <HistoryTable rows={state.history} />
           </Panel>
@@ -297,6 +307,13 @@ function NewSeason({ state }: { state: GameState }) {
           {r.walkOns.length ? `, ${r.walkOns.length} walk-on${r.walkOns.length === 1 ? "" : "s"} added` : ""}
           {r.transfersOut.length ? `; ${r.transfersOut.length} transferred out` : ""}.
         </p>
+        {(r.drafted?.some((d) => d.round !== null) || (r.spring?.length ?? 0) > 0) && (
+          <p className="mt-1 text-sm text-muted">
+            {r.drafted?.some((d) => d.round !== null) &&
+              `NFL Draft: ${r.drafted.filter((d) => d.round !== null).length} selected${r.drafted.some((d) => d.round === 1) ? `, ${r.drafted.filter((d) => d.round === 1).length} in the first round` : ""}. `}
+            {(r.spring?.length ?? 0) > 0 && `Spring practice: ${r.spring!.length} player${r.spring!.length === 1 ? "" : "s"} improved.`}
+          </p>
+        )}
         {gains.length > 0 && (
           <p className="mt-1 text-sm text-muted">
             Biggest jumps: {gains.map((g) => `${g.player.name} (${g.from}→${g.to})`).join(", ")}.{" "}

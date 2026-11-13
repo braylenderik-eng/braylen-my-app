@@ -21,6 +21,8 @@ export interface Player {
   promised?: boolean; // promised a bigger role this season: won't enter the January portal
   frustrated?: boolean; // unhappy with playing time: will ask to transfer in January
   awards?: string[]; // "2027 All-Conference", "2027 The Crown Trophy"
+  redshirt?: boolean; // sitting out this season to keep a year of eligibility
+  rsUsed?: boolean; // has used his redshirt year
   career?: import("./sim").StatLine & { games: number }; // totals from finished seasons
 }
 
@@ -119,7 +121,7 @@ export function starters(inp: LineupInput): Record<Pos, Player[]> {
   for (const pos of POS_ORDER) {
     out[pos] = inp.depth[pos]
       .map((id) => byId.get(id))
-      .filter((pl): pl is Player => !!pl && pl.yr !== "HS" && isAvailable(pl.id, inp))
+      .filter((pl): pl is Player => !!pl && pl.yr !== "HS" && !pl.redshirt && isAvailable(pl.id, inp))
       .slice(0, STARTERS[pos]);
   }
   return out;
@@ -190,7 +192,7 @@ export function skillFor(inp: LineupInput): Skill {
   const st = starters(inp);
   const byId = new Map(inp.players.map((pl) => [pl.id, pl]));
   const backups = (pos: Pos) =>
-    inp.depth[pos].map((id) => byId.get(id)!).filter((pl) => pl && pl.yr !== "HS" && isAvailable(pl.id, inp) && !st[pos].includes(pl));
+    inp.depth[pos].map((id) => byId.get(id)!).filter((pl) => pl && pl.yr !== "HS" && !pl.redshirt && isAvailable(pl.id, inp) && !st[pos].includes(pl));
   const wr = st.WR;
   return {
     qb: st.QB[0]?.name ?? "Backup QB",
