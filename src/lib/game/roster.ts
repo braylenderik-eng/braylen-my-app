@@ -23,6 +23,7 @@ export interface Player {
   awards?: string[]; // "2027 All-Conference", "2027 The Crown Trophy"
   redshirt?: boolean; // sitting out this season to keep a year of eligibility
   rsUsed?: boolean; // has used his redshirt year
+  contractYears?: number; // seasons left on a locked NIL deal (no raise until it runs out)
   career?: import("./sim").StatLine & { games: number }; // totals from finished seasons
 }
 

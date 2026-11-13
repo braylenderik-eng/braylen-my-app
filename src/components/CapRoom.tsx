@@ -8,7 +8,7 @@ import { cx } from "./ui";
 
 /** Money already promised but not yet paid: open recruiting offers and pending transfer bids. */
 function committed(s: GameState) {
-  const offers = s.recruiting && !s.recruiting.signed ? s.recruiting.board.filter((p) => p.offered && p.status === "open").reduce((n, p) => n + p.ask, 0) : 0;
+  const offers = s.recruiting && !s.recruiting.signed ? s.recruiting.board.filter((p) => p.offered && p.status === "open").reduce((n, p) => n + (p.offerAmt ?? p.ask), 0) : 0;
   const bids = s.offseason ? s.offseason.bids.filter((b) => b.status === "pending").reduce((n, b) => n + b.amount, 0) : 0;
   return { offers, bids };
 }

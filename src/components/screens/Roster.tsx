@@ -182,6 +182,15 @@ function PlayerCard({ player, state, onClose }: { player: Player | null; state: 
           <p className="text-sm">
             NIL deal <span className="font-display tabular">{money(p.nil)}</span>
           </p>
+          {(p.contractYears ?? 0) > 0 && (
+            <p className="text-xs text-muted">
+              {p.yr === "HS"
+                ? `${p.contractYears}-year deal, starts when he enrolls`
+                : p.contractYears === 1
+                  ? "Locked through this season"
+                  : `Locked for ${p.contractYears} seasons`}
+            </p>
+          )}
         </div>
       </div>
 

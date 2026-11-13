@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { TEAMS } from "@/lib/game/data";
 import { signChance } from "@/lib/game/offseason";
 import { POS_LABEL, STARTERS, type Pos } from "@/lib/game/roster";
@@ -8,6 +8,8 @@ import { prestige, rosterSpots, type GameState } from "@/lib/game/state";
 import { money, pct } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { PlayerFace } from "../PlayerFace";
+import { OfferSheet } from "../Negotiate";
+import { nextTier } from "@/lib/game/negotiation";
 import { Button, cx, PageHeader, Panel, Stat, Tag } from "../ui";
 
 /** Positions where you have fewer than a starter plus one backup (graduation and departures counted). */
@@ -28,6 +30,7 @@ export function OffseasonPortal({ state }: { state: GameState }) {
   const spots = rosterSpots(state);
   const byId = new Map(state.players.map((p) => [p.id, p]));
   const rows = off.pool.filter((t) => pos === "All" || t.pos === pos);
+  const [sheet, setSheet] = useState<string | null>(null);
 
   return (
     <>
@@ -125,7 +128,7 @@ export function OffseasonPortal({ state }: { state: GameState }) {
             <thead>
               <tr className="font-display border-b border-line text-[10px] tracking-widest text-muted">
                 <th className="px-4 py-2 text-left font-normal">Player</th>
-                {["Pos", "Yr", "OVR", "POT", "Ask", "Rivals", "Odds"].map((h) => (
+                {["Pos", "Yr", "OVR", "POT", "Ask", "Best rival", "Odds"].map((h) => (
                   <th key={h} className="px-2 py-2 text-right font-normal">
                     {h}
                   </th>
@@ -137,8 +140,11 @@ export function OffseasonPortal({ state }: { state: GameState }) {
               {rows.map((t) => {
                 const bid = off.bids.find((b) => b.id === t.id);
                 const can = open && !bid && state.nilBudget >= t.ask && spots > 0;
+                const raiseTo = bid?.status === "pending" ? nextTier(t.ask, bid.amount) : null;
+                const outbid = bid?.status === "pending" && (t.rivalBid ?? 0) > bid.amount;
                 return (
-                  <tr key={t.id} className={cx("border-b border-line/60 last:border-0", bid?.status === "signed" && "bg-good/5")}>
+                  <Fragment key={t.id}>
+                  <tr className={cx("border-b border-line/60 last:border-0", bid?.status === "signed" && "bg-good/5")}>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-3">
                         <PlayerFace id={t.id} pos={t.pos} color={TEAMS[t.from].color} size={36} />
@@ -157,15 +163,30 @@ export function OffseasonPortal({ state }: { state: GameState }) {
                     <td className="font-display tabular px-2 text-right text-base font-semibold">{t.ovr}</td>
                     <td className="font-display tabular px-2 text-right text-muted">{t.pot}</td>
                     <td className="font-display tabular px-2 text-right">{money(t.ask)}</td>
-                    <td className="font-display tabular px-2 text-right text-muted">{t.rivals}</td>
-                    <td className="font-display tabular px-2 text-right text-muted">{pct(signChance(t, state.hype, prestige(state)))}</td>
+                    <td className="font-display tabular px-2 text-right text-muted">
+                      {t.rivalBid ? <span className={cx(outbid && "text-gold")}>{money(t.rivalBid)}</span> : "—"}
+                      <span className="block text-[10px] text-dim">{t.rivals} school{t.rivals === 1 ? "" : "s"}</span>
+                    </td>
+                    <td className="font-display tabular px-2 text-right text-muted">{pct(signChance(t, state.hype, prestige(state), bid?.amount ?? t.ask))}</td>
                     <td className="px-4 text-right">
                       {bid ? (
-                        <Tag tone={bid.status === "signed" ? "good" : bid.status === "lost" ? "muted" : "gold"}>
-                          {bid.status === "pending" ? "Bid filed" : bid.status === "signed" ? "Signed" : "Lost"}
-                        </Tag>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Tag tone={bid.status === "signed" ? "good" : bid.status === "lost" ? "muted" : outbid ? "accent" : "gold"}>
+                            {bid.status === "pending" ? (outbid ? `Outbid · ${money(bid.amount)}` : `Bid ${money(bid.amount)}${(bid.years ?? 1) > 1 ? ` × ${bid.years}` : ""}`) : bid.status === "signed" ? "Signed" : "Lost"}
+                          </Tag>
+                          {open && raiseTo && (
+                            <Button
+                              variant="outline"
+                              className="px-2.5 py-1.5 text-xs"
+                              disabled={state.nilBudget < raiseTo - bid.amount}
+                              onClick={() => dispatch({ type: "offseason/raiseBid", id: t.id, amount: raiseTo })}
+                            >
+                              Raise to {money(raiseTo)}
+                            </Button>
+                          )}
+                        </div>
                       ) : open ? (
-                        <Button className="px-3 py-1.5 text-xs" disabled={!can} onClick={() => dispatch({ type: "offseason/bid", id: t.id })}>
+                        <Button className="px-3 py-1.5 text-xs" disabled={!can || sheet === t.id} onClick={() => setSheet(t.id)}>
                           {spots < 1 ? "No spots" : state.nilBudget < t.ask ? "Over budget" : "Bid"}
                         </Button>
                       ) : (
@@ -173,14 +194,33 @@ export function OffseasonPortal({ state }: { state: GameState }) {
                       )}
                     </td>
                   </tr>
+                  {sheet === t.id && open && !bid && (
+                    <tr className="border-b border-line/60">
+                      <td colSpan={9} className="px-4 pb-3">
+                        <OfferSheet
+                          ask={t.ask}
+                          rival={t.rivalBid}
+                          rivalLabel="Best rival bid"
+                          budget={state.nilBudget}
+                          lowball={false}
+                          onCancel={() => setSheet(null)}
+                          onSend={(amount, years) => {
+                            dispatch({ type: "offseason/bid", id: t.id, amount, years });
+                            setSheet(null);
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
         <p className="border-t border-line px-4 py-3 text-xs text-muted">
-          A bid spends the ask and a roster spot now. Bids resolve when you close the window; if he picks another school, both come back.
-          Odds improve with hype and last season&apos;s finish.
+          A bid spends its amount and a roster spot now. Bids resolve when you close the window; if he picks another school, both come back.
+          Odds improve with hype, last season&apos;s finish, playing time, and beating the best rival bid. Hot transfers can start bidding wars.
         </p>
       </Panel>
     </>

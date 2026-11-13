@@ -199,6 +199,22 @@ portal premium.
 - **Prestige counts less** in a recruit's starting interest than it used to. Fit, region, pitches and visits matter as much.
 - **The rival schools** recruiting against you are spread across all 40 programs.
 
+**NIL negotiations.** Every offer is a negotiation against a rival school's number:
+
+- **Offer sheet.** Pick an amount (lowball at 90% of his ask, his ask, above ask at 115%, or a max offer at 130%)
+  and a length of 1–3 seasons. Each recruit shows his ask next to his top rival's offer; each transfer shows the best
+  bid from the schools chasing him.
+- **Counteroffers.** A recruit takes a lowball only if he already leans your way. Otherwise he counters at his ask or
+  the rival's offer, whichever is higher. Accepting the counter makes it a regular offer. Transfers don't take lowballs.
+- **Money moves the needle, within limits.** Beating the rival's offer adds up to +10 interest for a recruit (a much
+  lower offer costs up to −15), and up to +15% signing odds for a transfer. It can't overcome fit, playing time or a
+  big interest gap.
+- **Bidding wars.** Each week, rival schools may raise their offers on 4- and 5-star prospects you've offered. Hot
+  transfers (84+ OVR with three or more suitors) can get an immediate counter-bid. Use **Raise** to step up to the
+  next tier; it costs only the difference.
+- **Multi-year deals.** Players like the security (+4 interest), but the price is locked: no raise if he develops,
+  no savings if he doesn't. A signee's clock starts when he enrolls, and the player card shows the seasons left.
+
 Simplification: the game tracks ~40 key players (real rosters are capped at 105), so its payrolls cover the players
 who take most of a real budget.
 

@@ -9,6 +9,8 @@ import { money, pct } from "@/lib/format";
 import { useGame } from "../GameProvider";
 import { Button, cx, Panel, Stat, Tag } from "../ui";
 import { PlayerFace } from "../PlayerFace";
+import { OfferSheet } from "../Negotiate";
+import { nextTier } from "@/lib/game/negotiation";
 
 type Filter = "All" | "Needs" | "Fit" | "Offered" | 2 | 3 | 4 | 5;
 
@@ -88,6 +90,10 @@ function ProspectRow({ p, state, needs, spots, active }: { p: Prospect; state: G
   const { dispatch } = useGame();
   const rec = state.recruiting!;
   const leading = p.you >= p.them;
+  const [sheet, setSheet] = useState(false);
+  const mine = p.offerAmt ?? p.ask;
+  const raiseTo = p.offered ? nextTier(p.ask, mine) : null;
+  const rivalShort = TEAMS[p.rival].name.split(" ").slice(-1)[0];
   return (
     <li className={cx("flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3", p.status === "signed" && "bg-good/5", p.status === "lost" && "opacity-50")}>
       <PlayerFace id={p.id} pos={p.pos} size={44} />
@@ -116,7 +122,24 @@ function ProspectRow({ p, state, needs, spots, active }: { p: Prospect; state: G
           <div style={{ width: `${(p.you / Math.max(1, p.you + p.them)) * 100}%`, background: "var(--accent)" }} />
           <div style={{ width: `${(p.them / Math.max(1, p.you + p.them)) * 100}%`, background: TEAMS[p.rival].color }} />
         </div>
-        {p.offered && p.status === "open" && <p className="mt-1 text-[11px] text-muted">If Signing Day were today: {pct(commitChance(p))} he signs with you</p>}
+        {p.status === "open" && (
+          <p className="mt-1 text-[11px] text-muted">
+            {p.offered ? (
+              <>
+                Your offer <span className="font-semibold text-text">{money(mine)}</span>
+                {(p.years ?? 1) > 1 && ` × ${p.years} yrs`}
+              </>
+            ) : (
+              <>Ask {money(p.ask)}</>
+            )}
+            {p.rivalOffer ? (
+              <>
+                {" "}· {rivalShort} <span className={cx((p.rivalOffer ?? 0) > mine ? "text-gold" : "text-text")}>{money(p.rivalOffer)}</span>
+              </>
+            ) : null}
+            {p.offered && <> · {pct(commitChance(p))} to sign if Signing Day were today</>}
+          </p>
+        )}
       </div>
       <div className="flex flex-wrap items-center justify-end gap-1.5">
         {p.status === "signed" && <Tag tone="good">Signed</Tag>}
@@ -138,18 +161,58 @@ function ProspectRow({ p, state, needs, spots, active }: { p: Prospect; state: G
                 Visit
               </Button>
             )}
+            {p.counter && !p.offered && (
+              <>
+                <Tag tone="gold">Countered {money(p.counter)}</Tag>
+                <Button
+                  className="px-2.5 py-1.5 text-xs"
+                  disabled={!active || state.nilBudget < p.counter || spots < 1}
+                  onClick={() => dispatch({ type: "recruit/offer", id: p.id, amount: p.counter })}
+                >
+                  Accept {money(p.counter)}
+                </Button>
+              </>
+            )}
             {p.offered ? (
-              <Button variant="ghost" className="px-2.5 py-1.5 text-xs" disabled={!active} onClick={() => dispatch({ type: "recruit/withdraw", id: p.id })}>
-                Withdraw {money(p.ask)}
-              </Button>
+              <>
+                {raiseTo && (
+                  <Button
+                    variant="outline"
+                    className="px-2.5 py-1.5 text-xs"
+                    disabled={!active || state.nilBudget < raiseTo - mine}
+                    onClick={() => dispatch({ type: "recruit/raise", id: p.id, amount: raiseTo })}
+                  >
+                    Raise to {money(raiseTo)}
+                  </Button>
+                )}
+                <Button variant="ghost" className="px-2.5 py-1.5 text-xs" disabled={!active} onClick={() => dispatch({ type: "recruit/withdraw", id: p.id })}>
+                  Withdraw
+                </Button>
+              </>
             ) : (
-              <Button className="px-2.5 py-1.5 text-xs" disabled={!active || state.nilBudget < p.ask || spots < 1} onClick={() => dispatch({ type: "recruit/offer", id: p.id })}>
-                Offer {money(p.ask)}
-              </Button>
+              !sheet && (
+                <Button className="px-2.5 py-1.5 text-xs" disabled={!active || spots < 1} onClick={() => setSheet(true)}>
+                  {p.counter ? "Negotiate" : "Make offer"}
+                </Button>
+              )
             )}
           </>
         )}
       </div>
+      {sheet && !p.offered && p.status === "open" && active && (
+        <OfferSheet
+          ask={p.ask}
+          rival={p.rivalOffer}
+          rivalLabel={`${rivalShort} offers`}
+          budget={state.nilBudget}
+          lowball
+          onCancel={() => setSheet(false)}
+          onSend={(amount, years) => {
+            dispatch({ type: "recruit/offer", id: p.id, amount, years });
+            setSheet(false);
+          }}
+        />
+      )}
     </li>
   );
 }

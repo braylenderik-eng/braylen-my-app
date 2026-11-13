@@ -8,6 +8,7 @@ import { TEAMS, type TeamId } from "./data";
 import { hashSeed, makeRng } from "./rng";
 import { inRegion } from "./league";
 import { playingTime, recruitAsk } from "./economy";
+import { moneyEdge, offerAmount, rivalOpening, rivalRaise, yearsBonus } from "./negotiation";
 import { POS_ORDER, STARTERS, type Player, type Pos } from "./roster";
 import { ALL_TEAMS, freeNumber, makePerson } from "./season";
 
@@ -35,6 +36,10 @@ export interface Prospect {
   status: "open" | "signed" | "lost";
   fit?: boolean; // fits your offensive or defensive scheme
   room?: "path" | "crowded"; // a path to start, or a crowded depth chart, at his position
+  rivalOffer?: number; // the rival school's NIL offer
+  offerAmt?: number; // your offer (when offered)
+  years?: number; // length of your offer
+  counter?: number; // he countered your lowball at this amount
   local?: boolean; // from your conference's home region
 }
 
@@ -121,6 +126,8 @@ export function createBoard(
       local,
     };
   });
+  // Rival schools' opening offers: hotter for the best prospects.
+  for (const p of board) p.rivalOffer = rivalOpening(p.ask, makeRng(hashSeed("rival-offer", seed, p.id))(), p.stars >= 5 ? 0.1 : p.stars === 4 ? 0.05 : 0);
   const pointsPerWeek = Math.max(4, Math.round(36 / weeks));
   return { classSeason, board, week: 1, weeks, points: pointsPerWeek, pointsPerWeek, signed: false, log: [] };
 }
@@ -133,8 +140,9 @@ export function openSpotsNextYear(players: Player[], rec: RecruitingState | null
 }
 
 /** Chance a prospect with an offer picks you on Signing Day. */
-export function commitChance(p: Pick<Prospect, "you" | "them">) {
-  return 1 / (1 + Math.exp(-(p.you - p.them) / 7));
+export function commitChance(p: Pick<Prospect, "you" | "them"> & Partial<Pick<Prospect, "offerAmt" | "rivalOffer" | "ask">>) {
+  const money = moneyEdge(p.offerAmt ?? 0, p.rivalOffer ?? 0, p.ask ?? 0);
+  return 1 / (1 + Math.exp(-(p.you + money - p.them) / 7));
 }
 
 export function pitch(rec: RecruitingState, id: string, seed: number): RecruitingState {
@@ -162,17 +170,44 @@ export function visit(rec: RecruitingState, id: string, seed: number): Recruitin
   };
 }
 
-/** Make an offer. Required to sign him; reserves the money and a roster spot. */
-export function offer(rec: RecruitingState, id: string, nil: number, spots: number) {
+const k = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(2)}M` : `${Math.round(n / 1000)}K`);
+
+/**
+ * Make an offer: required to sign him; reserves the money and a roster spot. Offer above his ask and he
+ * warms up; offer a multi-year deal and he likes the security. Lowball him and he takes it only if he's
+ * already sold on you; otherwise he counters at his price and nothing is reserved.
+ */
+export function offer(rec: RecruitingState, id: string, nil: number, spots: number, amount?: number, years = 1) {
   const p = rec.board.find((x) => x.id === id);
-  if (rec.signed || !p || p.status !== "open" || p.offered || nil < p.ask || spots < 1) return { rec, nil };
-  return { nil: nil - p.ask, rec: { ...rec, board: rec.board.map((x) => (x.id === id ? { ...x, offered: true, you: clamp(x.you + 5) } : x)) } };
+  const amt = amount ?? p?.ask ?? 0;
+  if (rec.signed || !p || p.status !== "open" || p.offered || nil < amt || spots < 1 || amt <= 0) return { rec, nil };
+  if (amt < p.ask && p.you < p.them + 5) {
+    const counter = Math.max(p.ask, offerAmount(p.rivalOffer ?? p.ask, 0.95));
+    const note = `${p.name} turned down the lowball and countered at ${k(counter)}.`;
+    return { nil, rec: { ...rec, board: rec.board.map((x) => (x.id === id ? { ...x, counter } : x)), log: [note, ...rec.log] } };
+  }
+  const warmth = 5 + (amt > p.ask ? 3 : amt < p.ask ? -3 : 0) + yearsBonus(years);
+  return {
+    nil: nil - amt,
+    rec: { ...rec, board: rec.board.map((x) => (x.id === id ? { ...x, offered: true, offerAmt: amt, years, counter: undefined, you: clamp(x.you + warmth) } : x)) },
+  };
+}
+
+/** Raise an offer you've already made (in a bidding war): costs the difference. */
+export function raise(rec: RecruitingState, id: string, nil: number, amount: number) {
+  const p = rec.board.find((x) => x.id === id);
+  const cur = p?.offerAmt ?? p?.ask ?? 0;
+  if (rec.signed || !p || !p.offered || p.status !== "open" || amount <= cur || nil < amount - cur) return { rec, nil };
+  return { nil: nil - (amount - cur), rec: { ...rec, board: rec.board.map((x) => (x.id === id ? { ...x, offerAmt: amount, you: clamp(x.you + 3) } : x)) } };
 }
 
 export function withdraw(rec: RecruitingState, id: string, nil: number) {
   const p = rec.board.find((x) => x.id === id);
   if (rec.signed || !p || !p.offered || p.status !== "open") return { rec, nil };
-  return { nil: nil + p.ask, rec: { ...rec, board: rec.board.map((x) => (x.id === id ? { ...x, offered: false, you: clamp(x.you - 5) } : x)) } };
+  return {
+    nil: nil + (p.offerAmt ?? p.ask),
+    rec: { ...rec, board: rec.board.map((x) => (x.id === id ? { ...x, offered: false, offerAmt: undefined, years: undefined, you: clamp(x.you - 5) } : x)) },
+  };
 }
 
 /** A regular-season week passes: rivals push, unattended prospects cool off, points refresh. */
@@ -180,13 +215,21 @@ export function advanceWeek(rec: RecruitingState, seed: number, season: number, 
   if (rec.signed) return rec;
   const rng = makeRng(hashSeed("rec-week", seed, season, week));
   const scale = 3 / rec.weeks; // the same total rival push whether the cycle is 2 or 12 weeks
-  const board = rec.board.map((p) => {
-    if (p.status !== "open") return p;
+  const raises: string[] = [];
+  const board = rec.board.map((p0) => {
+    if (p0.status !== "open") return p0;
+    let p = p0;
+    // Bidding wars: rivals chase the top prospects you've offered with more money.
+    if (p.offered && p.stars >= 4 && rng() < 0.22) {
+      const rivalOffer = rivalRaise(p.rivalOffer ?? p.ask, rng());
+      raises.push(`${TEAMS[p.rival].name} raised their offer for ${p.name} to ${k(rivalOffer)}.`);
+      p = { ...p, rivalOffer };
+    }
     const push = Math.round((3 + rng() * (4 + p.stars * 2)) * scale);
     const fade = p.pitchesThisWeek === 0 && !p.visited ? Math.round(3 * scale) : 0;
     return { ...p, them: clamp(p.them + push), you: clamp(p.you - fade), pitchesThisWeek: 0 };
   });
-  return { ...rec, board, week: rec.week + 1, points: rec.pointsPerWeek };
+  return { ...rec, board, week: rec.week + 1, points: rec.pointsPerWeek, log: [...raises, ...rec.log] };
 }
 
 /** Early Signing Day: offered prospects sign with you or their top rival. Signees join as high-school signees. */
@@ -199,13 +242,13 @@ export function signingDay(players: Player[], rec: RecruitingState, nil: number,
     if (p.status !== "open") return p;
     if (!p.offered) return { ...p, status: "lost" as const };
     if (rng() < commitChance(p)) {
-      const pl: Player = { id: p.id, name: p.name, num: freeNumber(next, rng), pos: p.pos, yr: "HS", ovr: p.ovr, pot: p.pot, hometown: p.hometown, nil: p.ask, source: "recruit" };
+      const pl: Player = { id: p.id, name: p.name, num: freeNumber(next, rng), pos: p.pos, yr: "HS", ovr: p.ovr, pot: p.pot, hometown: p.hometown, nil: p.offerAmt ?? p.ask, source: "recruit", contractYears: p.years ?? 1 };
       next = [...next, pl];
       signees.push(pl);
       log.push(`${"★".repeat(p.stars)} ${p.pos} ${p.name} signed with you.`);
       return { ...p, status: "signed" as const };
     }
-    nil += p.ask;
+    nil += p.offerAmt ?? p.ask;
     log.push(`${"★".repeat(p.stars)} ${p.pos} ${p.name} signed with ${TEAMS[p.rival].name}.`);
     return { ...p, status: "lost" as const };
   });

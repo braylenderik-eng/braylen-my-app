@@ -15,6 +15,7 @@ import * as Car from "./career";
 import * as A from "./awards";
 import * as Eco from "./economy";
 import * as D from "./draft";
+import * as N from "./negotiation";
 import {
   INITIAL_INJURIES, POS_LABEL, ROSTER, rosterFor, SIDE, STARTERS, initialDepth, isAvailable, ratingLossWithout,
   skillFor, starters, teamRatings, type Injury, type LineupInput, type Player, type Pos,
@@ -22,7 +23,7 @@ import {
 import { DEFAULT_PLAN, simulateGame, type GamePlan, type GameResult, type GameTimeRisk, type SimOptions, type StatLine } from "./sim";
 
 export const STORAGE_KEY = "portal-wars-v3";
-export const STATE_VERSION = 11;
+export const STATE_VERSION = 12;
 
 // ---- Calendar and playoff format ------------------------------------------------
 // Season N is the (2025 + N) college football season. Season 1 (2026) uses the 12-team playoff;
@@ -248,14 +249,16 @@ export type Action =
   | { type: "season/next" } // skip the rest of the offseason: the portal window closes with no more moves
   | { type: "offseason/start" }
   | { type: "offseason/departure"; playerId: string; call: "keep" | "release" }
-  | { type: "offseason/bid"; id: string }
+  | { type: "offseason/bid"; id: string; amount?: number; years?: number }
+  | { type: "offseason/raiseBid"; id: string; amount: number }
+  | { type: "recruit/raise"; id: string; amount: number }
   | { type: "offseason/declaration"; playerId: string; call: "pitch" | "release" }
   | { type: "offseason/focus"; group: string }
   | { type: "player/redshirt"; playerId: string; on: boolean }
   | { type: "offseason/closePortal" }
   | { type: "recruit/pitch"; id: string }
   | { type: "recruit/visit"; id: string }
-  | { type: "recruit/offer"; id: string }
+  | { type: "recruit/offer"; id: string; amount?: number; years?: number }
   | { type: "recruit/withdraw"; id: string }
   | { type: "offseason/begin" }
   | { type: "recap/seen" }
@@ -276,8 +279,8 @@ const LOSS_BAD = 12;
  */
 function withCommitments(rec: Rec.RecruitingState): Rec.RecruitingState {
   const board = rec.board.map((p, i) => {
-    if (i === 0) return { ...p, name: "Jalen Rook", pos: "QB" as const, hometown: "Austin, TX", offered: true, you: 72, them: 60, ask: 1_400_000 };
-    if (i === 3) return { ...p, offered: true, you: Math.max(p.you, p.them + 8) };
+    if (i === 0) return { ...p, name: "Jalen Rook", pos: "QB" as const, hometown: "Austin, TX", offered: true, you: 72, them: 60, ask: 1_400_000, offerAmt: 1_400_000, rivalOffer: 1_450_000 };
+    if (i === 3) return { ...p, offered: true, offerAmt: p.ask, you: Math.max(p.you, p.them + 8) };
     return p;
   });
   return { ...rec, board };
@@ -770,8 +773,30 @@ export function reducer(s: GameState, a: Action): GameState {
       const off = s.offseason;
       const t = off?.pool.find((x) => x.id === a.id);
       if (!off || off.phase !== "portal" || !t || off.bids.some((b) => b.id === a.id)) return s;
-      if (s.nilBudget < t.ask || Off.openSpots(s.players, off) < 1) return s;
-      return { ...s, nilBudget: s.nilBudget - t.ask, offseason: { ...off, bids: [...off.bids, { id: t.id, amount: t.ask, status: "pending" }] } };
+      const amount = Math.max(t.ask, a.amount ?? t.ask); // transfers don't take lowballs
+      const years = Math.min(N.MAX_YEARS, Math.max(1, a.years ?? 1));
+      if (s.nilBudget < amount || Off.openSpots(s.players, off) < 1) return s;
+      // Bidding war: a hot transfer's other suitors may answer your bid right away.
+      const r = makeRng(hashSeed("bid-war", s.seed, s.season, t.id))();
+      const war = t.rivals >= 3 && t.ovr >= 84 && amount >= (t.rivalBid ?? 0) && r < 0.55;
+      const rivalBid = war ? N.rivalRaise(amount, r) : t.rivalBid;
+      return {
+        ...s,
+        nilBudget: s.nilBudget - amount,
+        offseason: {
+          ...off,
+          pool: war ? off.pool.map((x) => (x.id === t.id ? { ...x, rivalBid } : x)) : off.pool,
+          bids: [...off.bids, { id: t.id, amount, years, status: "pending" }],
+          log: war ? [`Bidding war: another school answered your offer for ${t.name}.`, ...off.log] : off.log,
+        },
+      };
+    }
+
+    case "offseason/raiseBid": {
+      const off = s.offseason;
+      const b = off?.bids.find((x) => x.id === a.id && x.status === "pending");
+      if (!off || off.phase !== "portal" || !b || a.amount <= b.amount || s.nilBudget < a.amount - b.amount) return s;
+      return { ...s, nilBudget: s.nilBudget - (a.amount - b.amount), offseason: { ...off, bids: off.bids.map((x) => (x === b ? { ...x, amount: a.amount } : x)) } };
     }
 
     case "offseason/closePortal": {
@@ -819,7 +844,18 @@ export function reducer(s: GameState, a: Action): GameState {
     case "recruit/withdraw": {
       const rec = s.recruiting;
       if (!rec || rec.signed || s.week > FINAL_WEEK) return s;
-      const r = a.type === "recruit/offer" ? Rec.offer(rec, a.id, s.nilBudget, Rec.openSpotsNextYear(s.players, rec)) : Rec.withdraw(rec, a.id, s.nilBudget);
+      const years = a.type === "recruit/offer" ? Math.min(N.MAX_YEARS, Math.max(1, a.years ?? 1)) : 1;
+      const r =
+        a.type === "recruit/offer"
+          ? Rec.offer(rec, a.id, s.nilBudget, Rec.openSpotsNextYear(s.players, rec), a.amount, years)
+          : Rec.withdraw(rec, a.id, s.nilBudget);
+      return r.rec === rec ? s : { ...s, nilBudget: r.nil, recruiting: r.rec };
+    }
+
+    case "recruit/raise": {
+      const rec = s.recruiting;
+      if (!rec || rec.signed || s.week > FINAL_WEEK) return s;
+      const r = Rec.raise(rec, a.id, s.nilBudget, a.amount);
       return r.rec === rec ? s : { ...s, nilBudget: r.nil, recruiting: r.rec };
     }
 
@@ -1151,8 +1187,10 @@ export function startOffseason(s: GameState): GameState {
   const nextSeason = s.season + 1;
   // Bank this season's stats into each player's career totals before the roster turns over.
   const banked = s.players.map((p) => (s.seasonStats[p.id] ? { ...p, career: A.addCareer(p.career, s.seasonStats[p.id]) } : p));
-  const aged = ageRoster(banked, s.seed, nextSeason);
-  // Players who developed get raises; seniors who left free up their money.
+  // Locked deals tick down a season (a signee's clock starts once he enrolls).
+  const ticked = banked.map((p) => (p.contractYears && p.yr !== "HS" ? { ...p, contractYears: p.contractYears - 1 } : p));
+  const aged = ageRoster(ticked, s.seed, nextSeason);
+  // Players who developed get raises (unless their deal is locked); seniors who left free up their money.
   const players = Eco.reprice(aged.players);
   const report = aged.report;
   const ids = new Set(players.map((p) => p.id));
@@ -1434,7 +1472,21 @@ export function loadState(raw: string | null): GameState {
     // Version 10 saves predate the NFL Draft and spring practice.
     if (parsed?.version === 10) {
       const o = parsed.offseason;
-      parsed = { ...parsed, version: STATE_VERSION, draftHistory: [], offseason: o ? { ...o, declarations: o.declarations ?? [], draftPool: o.draftPool ?? [], focus: o.focus ?? [] } : null };
+      parsed = { ...parsed, version: 11, draftHistory: [], offseason: o ? { ...o, declarations: o.declarations ?? [], draftPool: o.draftPool ?? [], focus: o.focus ?? [] } : null };
+    }
+    // Version 11 saves predate negotiations: give prospects and transfers rival offers; offers keep their asks.
+    if (parsed?.version === 11) {
+      const p = parsed;
+      const rec = p.recruiting && {
+        ...p.recruiting,
+        board: p.recruiting.board.map((x) => ({
+          ...x,
+          rivalOffer: x.rivalOffer ?? N.rivalOpening(x.ask, makeRng(hashSeed("rival-offer", p.seed, x.id))(), x.stars >= 5 ? 0.1 : x.stars === 4 ? 0.05 : 0),
+          offerAmt: x.offered ? (x.offerAmt ?? x.ask) : x.offerAmt,
+        })),
+      };
+      const o = p.offseason;
+      parsed = { ...p, version: STATE_VERSION, recruiting: rec, offseason: o ? { ...o, pool: o.pool.map((t) => ({ ...t, rivalBid: t.rivalBid ?? (t.rivals ? N.rivalOpening(t.ask, makeRng(hashSeed("rival-bid", p.seed, t.id))(), Math.min(0.2, t.rivals * 0.03)) : 0) })) } : null };
     }
     // Saves from before the offseason update: no offseason field, and an older report shape.
     if (parsed && parsed.offseason === undefined) parsed = { ...parsed, offseason: null };

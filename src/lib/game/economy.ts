@@ -58,7 +58,7 @@ export const payroll = (players: Pick<Player, "nil">[]) => players.reduce((n, p)
 
 /** Re-price a roster at market value (each offseason players who developed get raises). Walk-ons stay unpaid. */
 export function reprice(players: Player[]): Player[] {
-  return players.map((p) => (p.source === "walkon" || p.yr === "HS" ? p : { ...p, nil: Math.max(p.nil, marketValue(p.pos, p.ovr, p.id)) }));
+  return players.map((p) => (p.source === "walkon" || p.yr === "HS" || (p.contractYears ?? 0) > 0 ? p : { ...p, nil: Math.max(p.nil, marketValue(p.pos, p.ovr, p.id)) }));
 }
 
 /** The collective always finds something: the minimum room to add players, at a new job and each offseason. */
