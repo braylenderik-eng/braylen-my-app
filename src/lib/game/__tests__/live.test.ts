@@ -70,7 +70,7 @@ describe("live game day engine", () => {
     for (let seed = 0; seed < 120 && checked < 3; seed++) {
       const yes = play(seed, (d) => (d.kind === "clock" ? { kind: "clock", choice: "yes" } : defaults(d)));
       const call = yes.result.calls?.find((c) => c.choice === "Milked the clock");
-      if (!call || !call.good || yes.result.overtime) continue;
+      if (!call || !call.outcome.includes("one fewer") || yes.result.overtime) continue;
       const no = play(seed, defaults);
       const theirs = (r: GameResult) => r.drives.filter((d) => d.team !== USER_TEAM && d.quarter <= 4).length;
       expect(theirs(yes.result)).toBe(theirs(no.result) - 1);

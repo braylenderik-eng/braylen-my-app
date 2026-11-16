@@ -52,10 +52,11 @@ test("play live: the game unfolds, pauses for calls, and the result counts", asy
     vi.advanceTimersByTime(700);
   });
   expect(screen.getByRole("button", { name: /pause/i })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "4×" }));
 
   let calls = 0;
   let sawHalftime = false;
-  for (let tick = 0; tick < 200 && !screen.queryByRole("button", { name: /see the recap/i }); tick++) {
+  for (let tick = 0; tick < 1500 && !screen.queryByRole("button", { name: /see the recap/i }); tick++) {
     const call =
       screen.queryByRole("button", { name: /start the second half/i }) ??
       screen.queryByRole("button", { name: /go for it/i }) ??
@@ -67,7 +68,7 @@ test("play live: the game unfolds, pauses for calls, and the result counts", asy
       calls++;
     }
     await act(async () => {
-      vi.advanceTimersByTime(1200);
+      vi.advanceTimersByTime(400);
     });
   }
 
@@ -77,4 +78,4 @@ test("play live: the game unfolds, pauses for calls, and the result counts", asy
   expect(screen.getByRole("heading", { level: 1, name: /victory|defeat/i })).toBeInTheDocument();
   expect(screen.getByText(/your calls/i)).toBeInTheDocument();
   expect(savedWeek()).toBe(12);
-});
+}, 30_000);

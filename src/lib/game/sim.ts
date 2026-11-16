@@ -6,6 +6,7 @@
 
 import { DEPTH, TEAMS, type Skill, type TeamId } from "./data";
 import { generatedSkill } from "./roster";
+import { buildDrive, type Play } from "./pbp";
 import { hashSeed, makeRng, type Rng } from "./rng";
 
 export { hashSeed, makeRng };
@@ -58,6 +59,8 @@ export interface Drive {
   text: string;
   homeScore: number;
   awayScore: number;
+  /** The snaps, for live games only (not saved). */
+  pbp?: Play[];
 }
 
 export interface StatLine {
@@ -248,7 +251,13 @@ export function* playGame(home: TeamId, away: TeamId, seed: number, opts: SimOpt
   let shortField: "home" | "away" | null = null; // set after a failed 4th down: that side gets a short field next
 
   // One possession. A generator because the user may get a 4th-down or two-point call mid-drive.
-  function* runDrive(side: "home" | "away", quarter: number, idx: number, mode?: "milk" | "hurry"): Generator<GameEvent, Drive, Answer | undefined> {
+  function* runDrive(
+    side: "home" | "away",
+    quarter: number,
+    idx: number,
+    mode?: "milk" | "hurry",
+    clock: { start: number; span: number } | null = null,
+  ): Generator<GameEvent, Drive, Answer | undefined> {
     const other = otherOf(side);
     const team = sideTeam(side);
     const isUser = team === user;
@@ -365,6 +374,7 @@ export function* playGame(home: TeamId, away: TeamId, seed: number, opts: SimOpt
 
     // Scoring and the try after a touchdown.
     let pts = result === "FG" ? 3 : 0;
+    let tryAfter: { two: boolean; made: boolean } | undefined;
     if (result === "TD") {
       pts = 6;
       let goForTwo = false;
@@ -376,91 +386,97 @@ export function* playGame(home: TeamId, away: TeamId, seed: number, opts: SimOpt
         };
         goForTwo = ans?.kind === "two" && ans.choice === "two";
         const made = rng() < (goForTwo ? tp : PAT_PCT);
+        tryAfter = { two: goForTwo, made };
         pts += made ? (goForTwo ? 2 : 1) : 0;
         suffix += goForTwo ? (made ? " · two-point try good" : " · two-point try fails") : made ? "" : " · extra point missed";
         calls.push({ quarter, label: `After a touchdown (${us() + 6}–${them()})`, choice: goForTwo ? "Went for two" : "Kicked the extra point", outcome: made ? "Good" : "No good", good: made });
       } else {
         const made = rng() < PAT_PCT;
+        tryAfter = { two: false, made };
         pts += made ? 1 : 0;
         if (!made) suffix += " · extra point missed";
       }
     }
+    const before = { ...score };
     score[side] += pts;
     if (result === "INT" || result === "FUM") totals[side].turnovers++;
     if (quarter <= 4) totals[side].quarters[quarter - 1] += pts;
 
-    const passYds = Math.round(Math.max(0, yards) * clamp(om.passShare + (rng() - 0.5) * 0.3, 0.1, 0.95));
-    const rushYds = yards - passYds;
+    let passYds = Math.round(Math.max(0, yards) * clamp(om.passShare + (rng() - 0.5) * 0.3, 0.1, 0.95));
+    let rushYds = yards - passYds;
+
+    let text = "";
+    let pbp: Play[] | undefined;
+    if (!opts.fast) {
+      // Play by play: the snaps behind this drive, which the box score is built from.
+      const otherTeam = sideTeam(other);
+      pbp = buildDrive({
+        rng: makeRng(hashSeed("plays", seed, idx, quarter)),
+        team,
+        opp: otherTeam,
+        home,
+        quarter,
+        result,
+        yards,
+        passShare: om.passShare,
+        pressure: defMods(side) === DEFENSE_MODS.pressure,
+        sk: skill[side],
+        dsk: skill[other],
+        fourth: fourthSpot && (result === "PUNT" || result === "FG" || result === "MISS" || result === "DOWNS") && !suffix ? distance : undefined,
+        fgDistance,
+        tryAfter,
+        before,
+        after: { ...score },
+        clock,
+      });
+      passYds = 0;
+      rushYds = 0;
+      for (const p of pbp) {
+        const pass = p.kind === "pass" || (p.kind === "td" && !!p.rec);
+        const run = p.kind === "run" || p.kind === "sack" || p.kind === "fumble" || p.kind === "kneel" || (p.kind === "td" && !!p.rusher) || (p.kind === "downs" && !!p.rusher);
+        if (p.qb && p.pass) add(line(team, p.qb.name, "QB"), "att", 1);
+        if (pass) {
+          const q = line(team, p.qb!.name, "QB");
+          add(q, "cmp", 1);
+          add(q, "passYds", p.yards);
+          const r = line(team, p.rec!.name, p.rec!.pos);
+          add(r, "rec", 1);
+          add(r, "recYds", p.yards);
+          passYds += p.yards;
+          if (p.kind === "td") {
+            add(q, "passTd", 1);
+            add(r, "recTd", 1);
+          }
+        }
+        if (run && p.rusher) {
+          const r = line(team, p.rusher.name, p.rusher.pos);
+          add(r, "car", 1);
+          add(r, "rushYds", p.yards);
+          rushYds += p.yards;
+          if (p.kind === "td") add(r, "rushTd", 1);
+        }
+        if (p.kind === "sack" && p.def) add(line(otherTeam, p.def.name, p.def.pos), "sacks", 1);
+        if (p.kind === "int" && p.qb) add(line(team, p.qb.name, "QB"), "int", 1);
+        if ((p.kind === "int" || p.kind === "fumble") && p.def) add(line(otherTeam, p.def.name, p.def.pos), "takeaways", 1);
+      }
+      plays = pbp.filter((p) => p.kind !== "try").length;
+
+      const sk = skill[side];
+      const last = pbp.filter((p) => p.kind !== "try").at(-1)!;
+      if (result === "TD") {
+        text = last.rec ? `${lastName(sk.qb)} ${last.yards}-yd TD pass to ${last.rec.name}` : `${last.rusher!.name} ${last.yards}-yd TD run`;
+      } else if (result === "FG") text = `${sk.k} ${fgDistance}-yd field goal`;
+      else if (result === "MISS") text = `${sk.k} misses from ${fgDistance}`;
+      else if (result === "INT") text = `${lastName(sk.qb)} intercepted by ${last.def!.name}`;
+      else if (result === "FUM") text = `Fumble forced by ${last.def!.name}`;
+      else if (result === "DOWNS") text = "Turnover on downs";
+      else text = "Punt";
+      text += suffix;
+    }
     totals[side].passYds += passYds;
     totals[side].rushYds += rushYds;
 
-    let text = "";
-    if (!opts.fast) {
-      const sk = skill[side];
-      const dsk = skill[other];
-      const passPlays = Math.max(1, Math.round(plays * om.passShare));
-      const rushPlays = Math.max(0, plays - passPlays);
-      const qb = line(team, sk.qb, "QB");
-      const cmp = Math.max(0, Math.min(passPlays, Math.round(passPlays * (0.55 + rng() * 0.2))));
-      add(qb, "att", passPlays);
-      add(qb, "cmp", cmp);
-      add(qb, "passYds", passYds);
-
-      let left = passYds;
-      for (let c = 0; c < cmp; c++) {
-        const target = weighted(rng, sk.receivers);
-        const s = line(team, target.name, target.pos);
-        const y = c === cmp - 1 ? left : Math.round(left * (0.2 + rng() * 0.5));
-        left -= y;
-        add(s, "rec", 1);
-        add(s, "recYds", y);
-      }
-      let rleft = rushYds;
-      for (let c = 0; c < rushPlays; c++) {
-        const back = rng() < 0.72 ? sk.rb[0] : sk.rb[1] ?? sk.rb[0];
-        const s = line(team, back, "RB");
-        const y = c === rushPlays - 1 ? rleft : Math.round(rleft * (0.15 + rng() * 0.4));
-        rleft -= y;
-        add(s, "car", 1);
-        add(s, "rushYds", y);
-      }
-
-      const otherTeam = sideTeam(other);
-      if (result === "TD") {
-        const passing = rng() < om.passShare;
-        const dist = int(rng, 1, Math.min(55, Math.max(2, yards - 10)));
-        if (passing) {
-          const target = weighted(rng, sk.receivers);
-          add(qb, "passTd", 1);
-          add(line(team, target.name, target.pos), "recTd", 1);
-          text = `${lastName(sk.qb)} ${dist}-yd TD pass to ${target.name}`;
-        } else {
-          const back = rng() < 0.8 ? sk.rb[0] : sk.qb;
-          add(line(team, back, back === sk.qb ? "QB" : "RB"), "rushTd", 1);
-          text = `${back} ${dist}-yd TD run`;
-        }
-      } else if (result === "FG") text = `${sk.k} ${fgDistance}-yd field goal`;
-      else if (result === "MISS") text = `${sk.k} misses from ${fgDistance}`;
-      else if (result === "INT") {
-        const d = pick(rng, dsk.defense);
-        add(qb, "int", 1);
-        add(line(otherTeam, d.name, d.pos), "takeaways", 1);
-        text = `${lastName(sk.qb)} intercepted by ${d.name}`;
-      } else if (result === "FUM") {
-        const d = pick(rng, dsk.defense);
-        add(line(otherTeam, d.name, d.pos), "takeaways", 1);
-        text = `Fumble forced by ${d.name}`;
-      } else if (result === "DOWNS") text = "Turnover on downs";
-      else text = "Punt";
-      text += suffix;
-
-      if (rng() < 0.18 * (defMods(side) === DEFENSE_MODS.pressure ? 1.8 : 1)) {
-        const d = dsk.defense[0];
-        add(line(otherTeam, d.name, d.pos), "sacks", 1);
-      }
-    }
-
-    const drive: Drive = { quarter, team, result, plays, yards, text, homeScore: score.home, awayScore: score.away };
+    const drive: Drive = { quarter, team, result, plays, yards, text, homeScore: score.home, awayScore: score.away, ...(live && pbp ? { pbp } : {}) };
     drives.push(drive);
     return drive;
   }
@@ -518,16 +534,22 @@ export function* playGame(home: TeamId, away: TeamId, seed: number, opts: SimOpt
       }
     }
 
-    const drive: Drive = yield* runDrive(side, quarter, i, mode);
+    // The game clock: this quarter's possessions share its 15 minutes.
+    const inQuarter = order.map((_, j) => j).filter((j) => quarterOf(j) === quarter);
+    const span = 900 / Math.max(1, inQuarter.length);
+    const k = Math.max(0, inQuarter.indexOf(i));
+    const drive: Drive = yield* runDrive(side, quarter, i, mode, { start: 900 - k * span, span });
     if (mode && clockCall) {
       // Update the clock call itself; other calls (like a two-point try) may have been made during this drive.
       const turnover = drive.result === "INT" || drive.result === "FUM" || drive.result === "DOWNS";
       if (mode === "milk") {
-        if (!turnover) {
-          const next = order.findIndex((s, j) => j > i && s !== side);
-          if (next > 0) order.splice(next, 1);
-        }
-        clockCall.outcome = turnover ? "Turned it over — they get the ball back" : "Ate the clock — one fewer possession for them";
+        const next = order.findIndex((s, j) => j > i && s !== side);
+        if (!turnover && next > 0) order.splice(next, 1);
+        clockCall.outcome = turnover
+          ? "Turned it over — they get the ball back"
+          : next > 0
+            ? "Ate the clock — one fewer possession for them"
+            : "Ran out the clock";
         clockCall.good = !turnover;
       } else {
         order.push(side); // one extra possession at the end
@@ -601,15 +623,6 @@ export function liveWinProbability(margin: number, fractionLeft: number, expecte
   return 1 / (1 + Math.exp((-1.7 * mean) / sd));
 }
 
-function weighted<T extends { share: number }>(rng: Rng, xs: readonly T[]): T {
-  const total = xs.reduce((s, x) => s + x.share, 0);
-  let roll = rng() * total;
-  for (const x of xs) {
-    roll -= x.share;
-    if (roll <= 0) return x;
-  }
-  return xs[xs.length - 1];
-}
 
 function lastName(name: string) {
   const parts = name.split(" ");

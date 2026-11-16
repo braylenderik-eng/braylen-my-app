@@ -250,6 +250,13 @@ with the default calls, so a live game where you accept every default plays out 
 seasons play out differently, but a given save is reproducible. Each drive ends in a touchdown, field goal, punt or
 turnover, with odds driven by offense vs. defense ratings, home field (none at neutral playoff sites) and your game plan.
 
+**Play by play.** `src/lib/game/pbp.ts` breaks each drive into the snaps behind it: down and distance, field position,
+the game clock, and who made the play (passer, receiver, runner, pass rusher, kicker). The box score is built from
+those snaps, so the feed and the stats always agree, and a 4th-down call you're asked to make shows up in the feed at
+the same distance. A live game plays one snap at a time (1×, 2× or 4×) on a top-down field showing the line of
+scrimmage, the line to gain and the current drive. Each play shows the player's portrait and a running stat line
+("6 REC, 88 YDS, 1 TD"). Snaps are only kept while you watch; the saved recap keeps the drive summaries.
+
 `src/lib/game/roster.ts` turns your depth chart into those ratings (and builds a starting roster for any program): the top healthy players at each position
 start, and their OVRs (weighted by position) move the team's offense and defense ratings. Questionable players sit
 unless you start them, and a started questionable player can get hurt again mid-game. Transfers you sign join the
