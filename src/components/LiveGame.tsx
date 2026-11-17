@@ -162,7 +162,7 @@ export function LiveGame({ state, m, onExit }: { state: GameState; m: MatchupInf
   return (
     <div className="pb-10">
       {/* Scoreboard */}
-      <div className="sticky top-[57px] z-20 -mx-4 mb-4 border-b border-line bg-bg/95 px-4 py-3 backdrop-blur">
+      <div className="sticky top-[53px] z-20 -mx-4 mb-4 border-b border-line bg-bg/95 px-4 py-3 backdrop-blur">
         <div className="flex items-center gap-3">
           {[fixture.away, fixture.home].map((id, i) => (
             <div key={id} className={cx("flex min-w-0 flex-1 items-center gap-2", i === 1 && "flex-row-reverse text-right")}>
